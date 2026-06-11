@@ -1,0 +1,117 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-tags: true   # check:release 的 tag↔package.json 对账需要 tags
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: 安装依赖
+        run: npm ci
+
+      # photo_aspect_smoke 的转码卡口走真实 ImageMagick convert（与生产同链路）
+      - name: 安装 ImageMagick
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq imagemagick
+
+      - name: 语法检查 (node --check 全 src + scripts)
+        run: find src scripts -name '*.mjs' -exec node --check {} \;
+
+      # v1.21.2 (#263 事故后续)：no-const-assign 等运行时 TypeError 级问题在 CI 抓死。
+      # 红色验证过：对 v1.20.1 坏版本跑能精确报出 'systemPrompt' is constant。
+      - name: ESLint（真 bug 级规则，零风格审美）
+        run: npm run lint
+
+      - name: import 链 smoke
+        run: npm run check:imports
+
+      - name: 字段漂移检查
+        run: npm run check:field-drift
+
+      - name: 发布一致性（版本号↔tag↔README↔ROADMAP↔双语行数）
+        run: npm run check:release
+
+      - name: neglect / 依恋 / reunion smoke
+        run: node scripts/neglect_stage_smoke.mjs
+
+      - name: 共建独特性 shaping smoke
+        run: node scripts/shaping_smoke.mjs
+
+      - name: 初恋特质 smoke
+        run: node scripts/first_love_smoke.mjs
+
+      - name: 人设导出字段对账（防白名单漂移）
+        run: node scripts/persona_export_drift_check.mjs
+
+      - name: 照片链路 issue#237 三连修复回归
+        run: node scripts/photo_fix237_smoke.mjs
+
+      - name: morning 重复早安修复回归
+        run: node scripts/morning_dedup_smoke.mjs
+
+      - name: 主动消息同义复读防护回归
+        run: node scripts/proactive_dedup_smoke.mjs
+
+      - name: 情绪机 1000 轮压测 + fuzzing
+        run: node scripts/emotion_stress_test.mjs
+
+      - name: 危机干预 safety 护栏
+        run: node scripts/safety_smoke.mjs
+
+      - name: 未成年人保护 minor guard 护栏
+        run: node scripts/minor_guard_smoke.mjs
+
+      - name: 隐私过滤 privacy filter 护栏
+        run: node scripts/privacy_filter_guard.mjs
+
+      - name: 冲突与和好弧 状态机转移表
+        run: node scripts/conflict_arc_smoke.mjs
+
+      - name: 冲突与和好弧 落库链 e2e
+        run: node scripts/conflict_arc_e2e.mjs
+
+      - name: 冲突红线护栏 + 危机覆盖
+        run: node scripts/conflict_redline_guard.mjs
+
+      - name: proactive 死人开关心跳
+        run: node scripts/proactive_deadman_smoke.mjs
+
+      - name: 照片比例（机位路由 + 转码卡口）
+        run: node scripts/photo_aspect_smoke.mjs
+
+      - name: proactive 素材级去重（冷却/归因/作用域钉死）
+        run: node scripts/proactive_material_smoke.mjs
+
+      - name: 称呼泄漏（"用户"零残留 + 写入端护栏）
+        run: node scripts/user_wording_guard.mjs
+
+      - name: 互动历史回填自动化（决策表/水位/防重）
+        run: node scripts/backfill_auto_smoke.mjs
+
+      - name: 入站去重（#279 上下文去重 + 协议重推，双向红色验证）
+        run: node scripts/inbound_dedup_smoke.mjs
+
+      - name: 表情冒充照片护栏（#281 双向红色验证）
+        run: node scripts/photo_impersonation_smoke.mjs
+
+      - name: 标注语料工具（CRUD/导出/admin 鉴权）
+        run: node scripts/annotation_smoke.mjs
+
+# 注：check:p0 / smoke(release_smoke_test.sh) 含 HTTP 探测，需服务在 :3000，
+# 暂未进门禁（在 CI 无服务会红）。后续给它们加 SKIP_HTTP 模式再接入。
