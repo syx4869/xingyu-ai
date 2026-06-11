@@ -2979,7 +2979,7 @@ ${r.prompt_hint}`;
         let reply = await generateReply(sys, [], '（铃声响起，你被吵醒）', {
           temperature: 0.85,
           max_tokens: 80,
-        });
+        }, { logLabel: '叫醒回复' });
         reply = (reply || '').replace(/^["「『]+|["」』]+$/g, '').trim();
         if (!reply) reply = '……几点啊';
         for (const seg of reply.split('||').map(s => s.trim()).filter(Boolean).slice(0, 3)) {

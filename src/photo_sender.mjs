@@ -129,7 +129,7 @@ async function generateNaturalCaption(companion, { activity, source }) {
       max_tokens: 60,
       temperature: 0.9,
       top_p: 0.9,
-    });
+    }, { logLabel: '照片配文' });
     return sanitizeCaption(text, source, activity);
   } catch (e) {
     log('warn', `[Photo] caption 生成失败: ${e.message}`);

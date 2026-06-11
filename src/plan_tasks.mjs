@@ -712,7 +712,7 @@ async function summarize(kind, instruction, text) {
     temperature: 0.2,
     max_tokens: 500,
     top_p: 0.9,
-  });
+  }, { logLabel: '记忆总结' });
   return result.replace(/\s+/g, ' ').slice(0, 500);
 }
 

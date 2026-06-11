@@ -861,7 +861,7 @@ ${recallLoop.expected_followup ? `你心里想：${recallLoop.expected_followup}
     temperature: companion.temperature,
     max_tokens: Math.min(companion.max_tokens || 300, 300),
     top_p: companion.top_p,
-  }, { accountId: proactiveBinding?.account_id || null });
+  }, { accountId: proactiveBinding?.account_id || null, logLabel: '主动消息' });
   reply = safeOutboundReply(reply);
   // #281：文本 proactive 永远没有真实照片（场景照是 kind=photo 独立分支）——表情绝不冒充照片
   reply = scrubPhotoImpersonation(reply, companion.id);
@@ -877,7 +877,7 @@ ${recallLoop.expected_followup ? `你心里想：${recallLoop.expected_followup}
       temperature: Math.min((companion.temperature || 0.8) + 0.15, 1.1),
       max_tokens: Math.min(companion.max_tokens || 300, 300),
       top_p: companion.top_p,
-    }, { accountId: proactiveBinding?.account_id || null });
+    }, { accountId: proactiveBinding?.account_id || null, logLabel: '主动消息(重试)' });
     retry = safeOutboundReply(retry);
     const retryCollision = findCollision(retry, recentAssistantTexts);
     if (!retryCollision) {

@@ -200,7 +200,7 @@ export async function playgroundChat(companion, userText) {
       max_tokens: companion.max_tokens,
       top_p: companion.top_p,
       safetyLevel: userMsgSafetyLevel,  // v1.9.1: high/medium 时收紧温度
-    });
+    }, { logLabel: 'Playground' });
   } catch (err) {
     log('error', `[Playground] generateReply 失败 companion=${companion.id}: ${err.message}`);
     throw err;
