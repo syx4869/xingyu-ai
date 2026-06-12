@@ -165,7 +165,9 @@ function runSleepTick(now) {
         log('info', `[Sleep] fallback exitSleep companion=${row.companion_id} (no morning sent within 5min of wake)`);
       }
       // 2) 学习固化：每天 03:40 cron 时尝试（避开高峰）
-      if (now.getHours() === 3 && now.getMinutes() === 40) {
+      const sh = (new Date().getUTCHours() + 8) % 24;
+      const sm = new Date().getUTCMinutes();
+      if (sh === 3 && sm === 40) {
         tryLockSchedule(row.companion_id, nowMs);
       }
       // 3) v2.0 Life Engine tick：每分钟推进生活状态机

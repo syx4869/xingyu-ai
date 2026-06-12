@@ -227,8 +227,8 @@ function computeDelta(userText = '', context = {}) {
   }
 
   // Time-of-day energy
-  const hour = new Date().getHours();
-  if (hour >= 22 || hour < 7) {
+  const hr = (new Date().getUTCHours() + 8) % 24;  // 上海时（UTC+8，无 DST）
+  if (hr >= 22 || hr < 7) {
     delta.energy = Math.min((delta.energy || 0), -5);
   }
 

@@ -3,9 +3,9 @@
 ## V2.1.1 (2026-06-12)
 
 ### 修复
-- **life_engine.mjs 时区 bug**：`lifeTick()` / `generateLifeShare()` 中 `new Date().getHours()` 返回服务器本地时间而非上海时间，导致状态机时段判断和场景描述全部偏移（如 UTC 服务器差 8 小时）
-- **generateLifeProactiveMessage 缺时间注入**：sysPrompt 完全没有时间信息，AI 在生活分享路径下不知道现在几点，导致在错误时段说"刚起床""刚下班"等
-- 新增 `getShanghaiHourMinute()` 工具函数，统一使用 `Intl.DateTimeFormat` + `Asia/Shanghai` 获取时间
+- **全项目时区 bug**：`life_engine.mjs` / `proactive_engine.mjs` / `emotion_state.mjs` / `plan_tasks.mjs` 中 `new Date().getHours()` 返回服务器本地时间而非上海时间，导致状态机时段判断、主动消息调度、情绪能量计算全部偏移
+- **新增 `getShanghaiHourMinute()` / `shanghaiHour()` 工具函数**：统一使用 `Intl.DateTimeFormat` + `Asia/Shanghai` 获取时间
+- **`generateLifeProactiveMessage` 缺时间注入**：sysPrompt 完全没有时间信息，AI 在生活分享路径下不知道现在几点
 
 ---
 

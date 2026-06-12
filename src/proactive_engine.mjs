@@ -10,6 +10,17 @@ import { log } from './logger.mjs';
 import { patchCompanion, getDailySchedule, shanghaiDateKey } from './db.mjs';
 import { getEmotionStateWithDefaults } from './emotion_state.mjs';
 
+// 上海时区安全的小时/分钟获取（避免 getHours() 用服务器本地时间）
+function shanghaiHour(now = new Date()) {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Asia/Shanghai',
+      hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+    }).formatToParts(now).filter(x => x.type !== 'literal').map(x => [x.type, x.value])
+  );
+  return { hour: Number(parts.hour), minute: Number(parts.minute) };
+}
+
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const MIN_GAP_CLINGY  = 45;   // minutes between proactive messages (clingy)
@@ -61,7 +72,7 @@ export function computeMissingScore(companion, user, context = {}) {
 
 /** 0-80：单纯时段基线，模拟真人"什么时候有空发消息" */
 export function computeTimeBaseScore(now = new Date()) {
-  const h = now.getHours();
+  const h = shanghaiHour(now).hour;
   if (h >= 23 || h < 7)   return 5;    // 凌晨/深夜：基本不打扰
   if (h >= 7  && h < 9)   return 70;   // 早安高峰
   if (h >= 9  && h < 11)  return 40;
@@ -103,7 +114,8 @@ export function computeScheduleMultiplier(companionId, now = new Date()) {
   try {
     const sched = getDailySchedule(companionId, shanghaiDateKey(now));
     if (!sched || !Array.isArray(sched.items)) return 1.0;
-    const nowMin = now.getHours() * 60 + now.getMinutes();
+    const sh = shanghaiHour(now);
+    const nowMin = sh.hour * 60 + sh.minute;
     // 找当前正在进行的活动（time <= now，取最近一个）
     let curItem = null;
     for (const it of sched.items) {
@@ -168,7 +180,7 @@ export function debugMotivationFactors(companion, context = {}) {
     schedule_multiplier: computeScheduleMultiplier(companion.id, now),
     final: computeProactiveMotivation(companion, context),
     emotion_snapshot: { mood: emotion.mood, dep: emotion.dependency, sec: emotion.security, poss: emotion.possessiveness },
-    hour: now.getHours(),
+    hour: shanghaiHour(now).hour,
   };
 }
 
@@ -178,7 +190,7 @@ export function shouldBackoffProactive(companion, context = {}) {
   const now = Date.now();
 
   // Night quiet hours
-  const hour = new Date().getHours();
+  const hour = shanghaiHour().hour;
   if (hour >= NIGHT_QUIET_START || hour < NIGHT_QUIET_END) {
     // Allow a single goodnight-type message but not spam
     const lastPro = companion.last_proactive_reply_at
@@ -240,7 +252,7 @@ const _TRIGGER_TYPES = [
 ];
 
 export function selectProactiveTrigger(companion, context = {}) {
-  const hour = new Date().getHours();
+  const hour = shanghaiHour().hour;
   const motivation = context.motivation ?? computeProactiveMotivation(companion, context);
   const emotion    = getEmotionStateWithDefaults(companion.id);
 
