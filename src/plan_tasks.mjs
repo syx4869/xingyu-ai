@@ -47,6 +47,7 @@ import {
   tryLockSchedule,
 } from './sleep.mjs';
 import { dispatchUrgentGoodnight, dispatchUrgentMorning } from './proactive.mjs';
+import { lifeTick } from './life_engine.mjs';
 
 const TZ = 'Asia/Shanghai';
 const TICK_MS = 60_000;
@@ -166,6 +167,15 @@ function runSleepTick(now) {
       // 2) 学习固化：每天 03:40 cron 时尝试（避开高峰）
       if (now.getHours() === 3 && now.getMinutes() === 40) {
         tryLockSchedule(row.companion_id, nowMs);
+      }
+      // 3) v2.0 Life Engine tick：每分钟推进生活状态机
+      try {
+        const lt = lifeTick(row.companion_id, now);
+        if (lt.changed) {
+          log('info', `[LifeEngine] companion=${row.companion_id} state=${lt.newState}${lt.subState ? '/' + lt.subState : ''}${lt.event ? ' event=' + lt.event.desc : ''}`);
+        }
+      } catch (e) {
+        log('warn', `[LifeEngine] tick companion=${row.companion_id}: ${e.message}`);
       }
     } catch (e) {
       log('warn', `[Sleep] tick companion=${row.companion_id}: ${e.message}`);

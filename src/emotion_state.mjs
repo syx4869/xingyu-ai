@@ -100,6 +100,19 @@ export function _resetDampenCacheForTests() {
   _dampenCache.clear();
 }
 
+/**
+ * v2.0 Life Engine: 按维度增量更新情绪（供 life_engine.mjs 调用）。
+ * dimension 为 emotion 维度名（affection/trust/dependency/possessiveness/security/energy/mood），
+ * delta 为增量，自动 clamp 到 0-100。
+ */
+export function updateEmotionDimension(companionId, dimension, delta) {
+  const current = getEmotionStateWithDefaults(companionId);
+  const currentVal = Number(current[dimension]) || 0;
+  const next = Math.max(0, Math.min(100, currentVal + delta));
+  upsertEmotionState(companionId, { [dimension]: next });
+  return next;
+}
+
 // ─── Getters ──────────────────────────────────────────────────────────────────
 
 export function getEmotionStateWithDefaults(companionId) {

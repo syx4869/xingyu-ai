@@ -65,6 +65,7 @@ export function getDb() {
     migrateOpenLoops();    // v1.8.0 #4
     migrateSafetyEvents(); // v1.9.0 #1 安全事件记录（高危后暂停普通主动消息）
     migrateRelationshipArc(); // v1.21.0 冲突与和好弧（关系事件状态机）
+    migrateLifeEngine();   // v2.0.0 Life Engine 生活模拟引擎
   }
   return db;
 }
@@ -219,6 +220,52 @@ function migratePhotoLog() {
       created_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_photo_log ON companion_photo_log(companion_id, created_at DESC);
+  `);
+}
+
+// ─── v2.0.0: Life Engine 生活模拟引擎 ────────────────────────────────────
+function migrateLifeEngine() {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS companion_life_state (
+      id                INTEGER PRIMARY KEY AUTOINCREMENT,
+      companion_id      INTEGER NOT NULL UNIQUE REFERENCES companions(id) ON DELETE CASCADE,
+      state             TEXT    NOT NULL DEFAULT 'idle',
+      sub_state         TEXT,
+      last_state_change INTEGER,
+      today_date        TEXT,
+      todays_events_count INTEGER DEFAULT 0
+    );
+    CREATE INDEX IF NOT EXISTS idx_life_state_companion ON companion_life_state(companion_id);
+
+    CREATE TABLE IF NOT EXISTS companion_life_habits (
+      id                INTEGER PRIMARY KEY AUTOINCREMENT,
+      companion_id      INTEGER NOT NULL UNIQUE REFERENCES companions(id) ON DELETE CASCADE,
+      sleep_type        TEXT NOT NULL DEFAULT 'normal' CHECK(sleep_type IN ('early_bird','night_owl','normal')),
+      drink_preference  TEXT NOT NULL DEFAULT 'water' CHECK(drink_preference IN ('water','tea','coffee','milk_tea')),
+      hobby_tags        TEXT DEFAULT '[]'
+    );
+    CREATE INDEX IF NOT EXISTS idx_life_habits_companion ON companion_life_habits(companion_id);
+
+    CREATE TABLE IF NOT EXISTS companion_life_events (
+      id                INTEGER PRIMARY KEY AUTOINCREMENT,
+      companion_id      INTEGER NOT NULL REFERENCES companions(id) ON DELETE CASCADE,
+      event_id          TEXT NOT NULL,
+      description       TEXT,
+      emotion_delta     TEXT,
+      created_at        INTEGER NOT NULL,
+      date_key          TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_life_events_companion ON companion_life_events(companion_id, date_key);
+
+    CREATE TABLE IF NOT EXISTS companion_dreams (
+      id                INTEGER PRIMARY KEY AUTOINCREMENT,
+      companion_id      INTEGER NOT NULL REFERENCES companions(id) ON DELETE CASCADE,
+      content           TEXT NOT NULL,
+      source            TEXT,
+      dream_date        TEXT NOT NULL,
+      created_at        INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_dreams_companion ON companion_dreams(companion_id, dream_date);
   `);
 }
 
