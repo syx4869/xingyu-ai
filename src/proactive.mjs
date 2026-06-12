@@ -47,6 +47,7 @@ import { getSleepRow, getOrRefreshTodaySchedule, exitSleep,
   drainMissed, upsertSleepSchedule,
 } from './sleep.mjs';
 import { generateLifeProactiveMessage } from './life_engine.mjs';
+import { generateTimelineRecall } from './timeline.mjs';
 
 // ─── Proactive Engine 版本选择 ────────────────────────────────────────────────
 // PROACTIVE_ENGINE=v2 启用 evaluateProactive() 决策层（推荐）
@@ -716,6 +717,12 @@ async function sendProactiveMessage(companion, kind, account, opts = {}) {
   let systemPrompt = `${buildSystemPrompt(companion, { memories, userProfile, recentTurns, longTermDigest, promptMode: 'proactive', dailySchedule: proactiveDailySchedule, recentSchedules: proactiveRecent, personaFacts: proactivePersonaFacts, preferences: proactivePreferences, shapingHint: buildShapingPromptHint(listShaping(companion.id)) })}${stickerHint}${emotionHint}${arcHint}
 
 【今日特别提醒】今天的特殊日期：${timeContext.specialText}。可自然地融入，不要喊口号。`;
+
+  // v2.1 Timeline: 注入时间线回忆，让主动消息能自然引用过去事件
+  const timelineRecall = generateTimelineRecall(companion.id);
+  if (timelineRecall.text) {
+    systemPrompt += `\n\n【时间线回忆】${timelineRecall.text}可以自然地回忆其中一件事，不要生硬地报日期。`;
+  }
 
   // ── 检查是否触发"AI 主动表白" ──
   // 条件：normal 时段 + 好感度>=50 + 双方都没表白过 + 认识>=5 天

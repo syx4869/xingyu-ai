@@ -21,6 +21,7 @@ import { getDb, shanghaiDateKey } from './db.mjs';
 import { getOrRefreshTodaySchedule, isSleepingNow, getSleepRow } from './sleep.mjs';
 import { updateEmotionDimension } from './emotion_state.mjs';
 import { generateReply } from './ai.mjs';
+import { generateTimelineRecall } from './timeline.mjs';
 
 // ─── 状态机定义 ────────────────────────────────────────────────────────────────
 
@@ -407,6 +408,22 @@ function generateDreamForCompanion(companionId, habits) {
     `).all(companionId);
     if (memories.length > 0) {
       context = memories.map(m => String(m.content).slice(0, 40)).join('; ');
+    }
+
+    // v2.1 Timeline: 时间线事件注入梦境
+    const timeline = generateTimelineRecall(companionId);
+    if (timeline.events.length > 0) {
+      const tlEvent = timeline.events[Math.floor(Math.random() * timeline.events.length)];
+      const tlKeywords = ['第一次认识', '聊天', '表白', '看动漫', '吵架', '和好', '一起'];
+      const matched = tlKeywords.find(k => tlEvent.description.includes(k));
+      if (matched) {
+        if (matched === '第一次认识') theme = '回到第一次认识的那天';
+        else if (matched === '表白') theme = '梦见表白那天的场景重现';
+        else if (matched === '吵架') theme = '梦见吵架那天，但这次和好了';
+        else if (matched === '和好') theme = '梦见和好那天的温暖';
+        else if (matched === '一起' || matched === '看动漫') theme = `梦见${tlEvent.description}`;
+        context = (context ? context + '; ' : '') + `时间线：${tlEvent.date_key} ${tlEvent.description}`;
+      }
     }
     // 读用户偏好
     const prefs = db.prepare(`

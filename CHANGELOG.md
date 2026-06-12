@@ -1,5 +1,24 @@
 # 星语 AI 变更日志
 
+## V2.1 (2026-06-12)
+
+### 新增 — Timeline Engine 时间线引擎
+- **时间线记录**：`companion_timeline` 表，每条事件含日期、描述、分类、参与角色
+- **自动记录里程碑**：首次认识用户、首次聊天、AI 表白、用户表白均自动写入时间线
+- **时间线回忆**：`generateTimelineRecall()` 查询 7 天前的事件，生成"上个月你们一起看了动漫"等自然语言回忆
+- **主动消息集成**：proactive 消息 prompt 注入时间线回忆，AI 可自然引用"还记得上个月..."
+- **梦境集成**：时间线事件匹配到梦境主题（表白→梦见表白场景重现，吵架→梦见和好）
+- **CRUD 接口**：`recordTimelineEvent()` / `getTimeline()` / `getTimelineForPeriod()` / `getRecentMilestone()`
+
+### 修改
+- `timeline.mjs`：新建，核心引擎（建表 + CRUD + 回忆生成 + 自动里程碑）
+- `db.mjs`：注册 `migrateTimeline()` 迁移
+- `proactive.mjs`：导入 `generateTimelineRecall`，系统 prompt 注入时间线回忆
+- `life_engine.mjs`：导入 `generateTimelineRecall`，梦境生成匹配时间线
+- `bot.mjs`：导入 `autoRecordMilestones`，首次聊天/表白时自动记录时间线
+
+---
+
 ## V2.0 (2026-06-12)
 
 ### 新增 — Life Engine 生活模拟引擎（完整版）

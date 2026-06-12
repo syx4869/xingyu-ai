@@ -10,6 +10,7 @@
  */
 
 import { parseMessage, sendTextMessage, sendTyping, sendMessageItem, rememberContextToken, peekSendQuota } from './ilink.mjs';
+import { autoRecordMilestones, recordTimelineEvent } from './timeline.mjs';
 import { stripCurrentTurnFromHistory, isProtocolDuplicate } from './inbound_dedup.mjs';   // v1.21.4 #279
 import { generateReply, recognizeImage, embedText } from './ai.mjs';
 import { downloadInboundVoiceToMp3 } from './voice_inbound.mjs';
@@ -843,6 +844,8 @@ async function processUserTurn({ companion, binding, ctx, botId, fromUser, conte
         try {
           markUserConfessed(companion.id);
           log('info', `[Bot] ★ 表白被接住 companion=${companion.id} aff=${companion.affection_level || 0} days=${daysSinceMeet(companion)}`);
+          // v2.1 Timeline: 记录用户表白事件
+          try { recordTimelineEvent(companion.id, shanghaiDateKey(), '用户向我表白了', 'milestone'); } catch {}
         } catch (e) { log('warn', `[Bot] 接住表白处理失败: ${e.message}`); }
       } else {
         // 不够格（认识太短 / 好感不够）→ 端着婉拒，关系不升级、不标记（之后可再表白）
@@ -1178,6 +1181,8 @@ async function postProcess(companion, userMsg, botReply) {
       markCompanionConfessed(companion.id);
       companion.confessed_at = new Date().toISOString();  // 让本轮 sync 看到
       log('info', `[Bot] ★ AI 在日常对话中表白 companion=${companion.id}`);
+      // v2.1 Timeline: 记录表白事件
+      try { recordTimelineEvent(companion.id, shanghaiDateKey(), '向用户表白了', 'milestone'); } catch {}
     }
   } catch (e) { log('warn', `[Bot] companion confession detect failed: ${e.message}`); }
 
@@ -1198,6 +1203,8 @@ async function postProcess(companion, userMsg, botReply) {
 
   // 首次聊天成就（静默）
   tryAchievement(companion.id, 'first_chat');
+  // v2.1 Timeline: 自动记录时间线里程碑
+  autoRecordMilestones(companion.id, companion);
 
   // 异步：记忆提取
   if (companion.memory_enabled) {

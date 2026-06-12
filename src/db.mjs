@@ -66,6 +66,7 @@ export function getDb() {
     migrateSafetyEvents(); // v1.9.0 #1 安全事件记录（高危后暂停普通主动消息）
     migrateRelationshipArc(); // v1.21.0 冲突与和好弧（关系事件状态机）
     migrateLifeEngine();   // v2.0.0 Life Engine 生活模拟引擎
+    migrateTimeline();    // v2.1.0 Timeline Engine 时间线引擎
   }
   return db;
 }
@@ -266,6 +267,21 @@ function migrateLifeEngine() {
       created_at        INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_dreams_companion ON companion_dreams(companion_id, dream_date);
+  `);
+}
+
+function migrateTimeline() {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS companion_timeline (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      companion_id  INTEGER NOT NULL REFERENCES companions(id) ON DELETE CASCADE,
+      date_key      TEXT NOT NULL,
+      description   TEXT NOT NULL,
+      category      TEXT NOT NULL DEFAULT 'general',
+      participants  TEXT DEFAULT '[]',
+      created_at    INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_timeline_companion ON companion_timeline(companion_id, date_key);
   `);
 }
 
