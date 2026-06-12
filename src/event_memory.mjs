@@ -51,20 +51,21 @@ export function generateEventId(companionId, type) {
 
 /**
  * 记录一个新事件到 event_memory 表。
+ * @param {string} [eventId] 可选，不传则自动生成
  * 返回 eventId 或 null。
  */
-export function recordEvent(companionId, type, summary) {
-  const eventId = generateEventId(companionId, type);
+export function recordEvent(companionId, type, summary, eventId = null) {
+  const id = eventId || generateEventId(companionId, type);
   const ok = insertEventMemory(companionId, {
-    id: eventId,
+    id,
     type,
     summary,
     createdAt: Date.now(),
   });
   if (ok) {
-    log('info', `[EventMemory] recorded id=${eventId} companion=${companionId} type=${type} summary="${summary}"`);
+    log('info', `[EventMemory] recorded id=${id} companion=${companionId} type=${type} summary="${summary}"`);
   }
-  return ok ? eventId : null;
+  return ok ? id : null;
 }
 
 // ─── 标记已提及 ──────────────────────────────────────────────────────────────
@@ -113,6 +114,46 @@ export function getAvailableEvents(companionId) {
     const cooldownMs = COOLDOWN_MS[e.type] || 6 * 3600_000;
     return (now - e.created_at) >= cooldownMs;
   });
+}
+
+// ─── 梦境专用 ────────────────────────────────────────────────────────────────
+
+/**
+ * 获取最近一条梦境事件（用于分享时获取真实 eventId）。
+ */
+export function getRecentDreamEvent(companionId) {
+  const events = getRecentEvents(companionId, 48);
+  return events.find(e => e.type === 'dream') || null;
+}
+
+/**
+ * 检查是否允许生成新梦境。
+ * 规则：24h 内已生成过 → 禁止；已分享过 → 禁止。
+ */
+export function isDreamGenerationAllowed(companionId) {
+  const dream = getRecentDreamEvent(companionId);
+  if (!dream) return { allowed: true, reason: '' };
+
+  const elapsed = Date.now() - dream.created_at;
+  if (elapsed < COOLDOWN_MS.dream) {
+    return {
+      allowed: false,
+      reason: `24h 冷却中（${Math.ceil((COOLDOWN_MS.dream - elapsed) / 3600_000)}h 后解禁）`,
+      lastDream: dream,
+    };
+  }
+  if (dream.mentioned_count > 0) {
+    return { allowed: false, reason: '梦境已分享过', lastDream: dream };
+  }
+  return { allowed: true, reason: '' };
+}
+
+/**
+ * 检查当前梦境是否已被分享过（mentioned_count > 0）。
+ */
+export function isDreamAlreadyShared(companionId) {
+  const dream = getRecentDreamEvent(companionId);
+  return dream && dream.mentioned_count > 0;
 }
 
 // ─── 构建"已提及事件"prompt 提示 ────────────────────────────────────────────

@@ -1,5 +1,28 @@
 # 星语 AI 变更日志
 
+## V2.1.3 (2026-06-12)
+
+### 修复 — 梦境重复问题（Event Memory 链路修复）
+
+**根因分析**：四个关键链路断裂导致梦境仍重复：
+1. `generateDreamForCompanion` 无冷却检查，每 tick 15% 概率一晚上生成多次
+2. `generateLifeShare` dream_share 用 `generateEventId` 新建 ID，与 `generateDreamForCompanion` 中 `recordEvent` 写入的 ID 不同 → `markMentioned` 标记错对象
+3. `checkTopicDuplicate` 定义了但从未被调用
+4. `generateLifeProactiveMessage` 中多余的 `recordEvent` 创建冗余 event_memory 记录
+
+**修复内容**：
+- `event_memory.mjs`：新增 `getRecentDreamEvent()` / `isDreamGenerationAllowed()` / `isDreamAlreadyShared()` 梦境专用函数；`recordEvent` 支持可选 eventId 参数
+- `life_engine.mjs` `generateDreamForCompanion`：生成前调用 `isDreamGenerationAllowed`，24h 冷却或已分享则返回 null
+- `life_engine.mjs` `handleSleepTick`：处理 `generateDreamForCompanion` 返回 null 的情况
+- `life_engine.mjs` `generateLifeShare` dream_share：从 `event_memory` 查询真实 dream eventId，不再新建；新增 `isDreamAlreadyShared` 检查
+- `life_engine.mjs` `generateLifeProactiveMessage`：删除多余的 `recordEvent`（梦境不重复记录）；接入 `checkTopicDuplicate`，主题相似度 >70% 时降级为普通生活分享
+
+### 修改
+- `event_memory.mjs`：+3 梦境专用函数，`recordEvent` 签名扩展
+- `life_engine.mjs`：`generateDreamForCompanion` / `handleSleepTick` / `generateLifeShare` / `generateLifeProactiveMessage` 全部修复
+
+---
+
 ## V2.1.2 (2026-06-12)
 
 ### 新增 — Event Memory 事件记忆系统

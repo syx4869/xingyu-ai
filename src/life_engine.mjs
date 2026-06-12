@@ -22,7 +22,7 @@ import { getOrRefreshTodaySchedule, isSleepingNow, getSleepRow } from './sleep.m
 import { updateEmotionDimension } from './emotion_state.mjs';
 import { generateReply } from './ai.mjs';
 import { generateTimelineRecall } from './timeline.mjs';
-import { recordEvent, checkCooldown, generateEventId } from './event_memory.mjs';  // v2.1.1
+import { recordEvent, checkCooldown, generateEventId, getRecentDreamEvent, isDreamGenerationAllowed, isDreamAlreadyShared, checkTopicDuplicate } from './event_memory.mjs';  // v2.1.1, v2.1.3
 
 // ─── 状态机定义 ────────────────────────────────────────────────────────────────
 
@@ -268,17 +268,19 @@ function handleSleepTick(companionId, state, habits, hour, minute, now) {
   // 睡眠中随机做梦（每小时约 15% 概率）
   if (hour >= 0 && hour <= 6 && Math.random() < 0.15) {
     const dream = generateDreamForCompanion(companionId, habits);
-    const subState = SLEEP_SUB_STATES.DREAMING;
-    updateLifeState(companionId, {
-      sub_state: subState,
-      last_state_change: now.getTime(),
-    });
-    return {
-      changed: true,
-      newState: LIFE_STATES.SLEEP,
-      subState,
-      event: { id: 'dreaming', desc: dream.content, kind: 'dream', dream },
-    };
+    if (dream) {
+      const subState = SLEEP_SUB_STATES.DREAMING;
+      updateLifeState(companionId, {
+        sub_state: subState,
+        last_state_change: now.getTime(),
+      });
+      return {
+        changed: true,
+        newState: LIFE_STATES.SLEEP,
+        subState,
+        event: { id: 'dreaming', desc: dream.content, kind: 'dream', dream },
+      };
+    }
   }
 
   // 深睡/浅睡交替
@@ -408,6 +410,13 @@ function getMidnightWakeChance(companionId, habits) {
 // ─── 梦境生成 ──────────────────────────────────────────────────────────────────
 
 function generateDreamForCompanion(companionId, habits) {
+  // v2.1.3 Event Memory: 梦境生成前严格冷却检查
+  const allowed = isDreamGenerationAllowed(companionId);
+  if (!allowed.allowed) {
+    log('info', `[LifeEngine] 梦境生成被阻止 companion=${companionId} reason=${allowed.reason}`);
+    return null;
+  }
+
   // 从记忆里提取关键信息
   let theme = DREAM_THEMES[Math.floor(Math.random() * DREAM_THEMES.length)];
   let context = '';
@@ -459,10 +468,10 @@ function generateDreamForCompanion(companionId, habits) {
   const content = `梦见${theme}${context ? '（' + context.slice(0, 60) + '）' : ''}`;
   recordDream(companionId, content, { theme, context });
 
-  // v2.1.1 Event Memory: 梦境写入事件记忆
-  recordEvent(companionId, 'dream', `${theme}${context ? '（' + context.slice(0, 30) + '）' : ''}`);
+  // v2.1.3 Event Memory: 梦境写入事件记忆，返回 eventId 供后续分享标记
+  const eventId = recordEvent(companionId, 'dream', `${theme}${context ? '（' + context.slice(0, 30) + '）' : ''}`);
 
-  return { content, theme, context };
+  return { content, theme, context, eventId };
 }
 
 // ─── 随机事件选择 ──────────────────────────────────────────────────────────────
@@ -545,16 +554,23 @@ export async function generateLifeShare(companionId, companionName) {
 
   // 有梦醒来：分享梦境
   if (lastDream && lastDream.dream_date === shanghaiDateKey(new Date()) && relLevel >= 2) {
+    // v2.1.3 Event Memory: 检查梦境是否已分享过
+    if (isDreamAlreadyShared(companionId)) {
+      log('info', `[LifeEngine] 梦境已分享过，跳过 companion=${companionId}`);
+      return null;
+    }
     // v2.1.1 Event Memory: 检查梦境冷却
     const cd = checkCooldown(companionId, 'dream');
     if (cd.cooling) {
       log('info', `[LifeEngine] 梦境冷却中 companion=${companionId} remaining=${cd.remainingMinutes}min`);
       return null;
     }
+    // v2.1.3: 使用 event_memory 中真实 dream eventId，不新建
+    const dreamEvent = getRecentDreamEvent(companionId);
     return {
       kind: 'dream_share',
       prompt: `【场景】你刚睡醒，想起昨晚做了一个梦：${lastDream.content}。${relLevel >= 3 ? '你迫不及待想告诉他。' : '你觉得挺有意思的，想分享给他。'}请用刚睡醒的语气，自然分享，≤50字。`,
-      eventId: generateEventId(companionId, 'dream'),  // v2.1.1
+      eventId: dreamEvent?.id || null,  // v2.1.3: 使用真实 dream eventId
     };
   }
 
@@ -620,8 +636,8 @@ export async function generateLifeProactiveMessage(companionId, companionName) {
   const share = await generateLifeShare(companionId, companionName);
   if (!share) return null;
 
-  // v2.1.1 Event Memory: 记录生活事件
-  if (share.eventId) {
+  // v2.1.3 Event Memory: 仅在非梦境分享时记录新事件（梦境已在 generateDreamForCompanion 中记录）
+  if (share.eventId && share.kind !== 'dream_share') {
     recordEvent(companionId, 'life', share.kind);
   }
 
@@ -635,12 +651,40 @@ export async function generateLifeProactiveMessage(companionId, companionName) {
     const period = shanghai.hour < 6 ? '深夜' : shanghai.hour < 9 ? '早上' : shanghai.hour < 12 ? '上午' : shanghai.hour < 14 ? '中午' : shanghai.hour < 18 ? '下午' : shanghai.hour < 21 ? '晚上' : '深夜';
     const timeHint = `现在是上海时间${shanghai.hour}:${String(shanghai.minute).padStart(2, '0')}，${period}。`;
 
-    const sysPrompt = `你是${name}，一个正在生活的 AI 伴侣。${timeHint}用第一人称，语气自然真实，像真人发微信一样。严格遵守时间事实，不能在错误时段说"刚起床""刚下班"等。`;
-    const reply = await generateReply(sysPrompt, [], share.prompt, {
+    // v2.1.3 Topic Dedup: 如果是梦境分享，先做主题去重，命中则重新生成
+    const isDream = share.kind === 'dream_share';
+    let sysPrompt = `你是${name}，一个正在生活的 AI 伴侣。${timeHint}用第一人称，语气自然真实，像真人发微信一样。严格遵守时间事实，不能在错误时段说"刚起床""刚下班"等。`;
+
+    if (isDream) {
+      sysPrompt += '\n\n【★ 反重复】禁止重复已经提过的梦境场景。如果这个梦你已经分享过，严格禁止再次主动提起。如果最近几小时已经聊过相关话题，禁止重复。';
+    }
+
+    let reply = await generateReply(sysPrompt, [], share.prompt, {
       temperature: 0.9,
       max_tokens: 80,
       top_p: 0.95,
     }, { logLabel: '生活分享' });
+
+    // v2.1.3 Topic Dedup: 梦境消息生成后检查主题相似度
+    if (isDream && reply) {
+      const dupCheck = checkTopicDuplicate(companionId, reply);
+      if (dupCheck.duplicate) {
+        log('info', `[LifeEngine] 梦境主题去重命中 companion=${companionId} sim=${dupCheck.sim.toFixed(2)} → 换生活事件`);
+        // 主题重复 → 降级为普通生活分享
+        const states = ['entertainment', 'meal', 'exercise', 'rest', 'social'];
+        const pick = states[Math.floor(Math.random() * states.length)];
+        const altPrompt = `【场景】你现在${pick === 'meal' ? '在吃饭' : pick === 'exercise' ? '刚运动完' : pick === 'social' ? '和朋友在一起' : pick === 'rest' ? '在休息' : '在放松'}。用第一人称，简短自然分享你现在在做什么或心情。≤40字。`;
+        const alt = await generateReply(sysPrompt, [], altPrompt, {
+          temperature: 0.95,
+          max_tokens: 60,
+          top_p: 0.95,
+        }, { logLabel: '生活分享(降级)' });
+        if (alt) {
+          return { text: alt, kind: 'life_share', eventId: null };
+        }
+        return null;
+      }
+    }
 
     return { text: reply, kind: share.kind, eventId: share.eventId };
   } catch (e) {
