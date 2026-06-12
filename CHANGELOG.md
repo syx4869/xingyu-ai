@@ -1,5 +1,24 @@
 # 星语 AI 变更日志
 
+## V2.1.2 (2026-06-12)
+
+### 新增 — Event Memory 事件记忆系统
+- **防主动消息重复**：同一事件只能主动提及一次，之后仅允许用户主动询问时回忆
+- **事件唯一 ID**：`dream_20260612_001` 格式，`{type}_{YYYYMMDD}_{序号}`
+- **数据库**：新增 `event_memory` 表（id/type/summary/createdAt/mentionedAt/mentionedCount）+ `event_topic_log` 表
+- **冷却时间**：Dream 24h / Movie 12h / Life 6h，冷却期间禁止再次主动提及
+- **Topic Deduplication**：记录最近 48 小时主动消息主题，相似度 ≥70% 时重生内容
+- **Prompt 规则**：禁止重复已提及事件、禁止连续围绕同一梦境、优先生成新生活事件
+- **生命周期**：梦境生成时写入 event_memory → 主动消息发送后标记 mentionedCount + 记录 topic
+
+### 修改
+- `event_memory.mjs`：新建，核心模块（ID 生成/CRUD/冷却检查/主题去重/Prompt 构建）
+- `db.mjs`：新增 `migrateEventMemory()` + 6 个 CRUD 函数（insertEventMemory/markEventMentioned/getRecentEvents/getUnmentionedEvents/insertTopicLog/getRecentTopics）
+- `proactive.mjs`：systemPrompt 注入 Event Memory 规则，发送后记录 topic + 标记事件
+- `life_engine.mjs`：梦境生成同步写入 event_memory，dream_share 前检查冷却
+
+---
+
 ## V2.1.1 (2026-06-12)
 
 ### 修复

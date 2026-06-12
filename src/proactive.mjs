@@ -48,6 +48,7 @@ import { getSleepRow, getOrRefreshTodaySchedule, exitSleep,
 } from './sleep.mjs';
 import { generateLifeProactiveMessage } from './life_engine.mjs';
 import { generateTimelineRecall } from './timeline.mjs';
+import { buildEventMemoryPromptHint, logTopic, recordEvent, markMentioned } from './event_memory.mjs';  // v2.1.1
 
 // ─── Proactive Engine 版本选择 ────────────────────────────────────────────────
 // PROACTIVE_ENGINE=v2 启用 evaluateProactive() 决策层（推荐）
@@ -724,6 +725,9 @@ async function sendProactiveMessage(companion, kind, account, opts = {}) {
     systemPrompt += `\n\n【时间线回忆】${timelineRecall.text}可以自然地回忆其中一件事，不要生硬地报日期。`;
   }
 
+  // v2.1.1 Event Memory: 注入事件记忆规则，防重复
+  systemPrompt += `\n\n${buildEventMemoryPromptHint(companion.id)}`;
+
   // ── 检查是否触发"AI 主动表白" ──
   // 条件：normal 时段 + 好感度>=50 + 双方都没表白过 + 认识>=5 天
   let effectiveKind = kind;
@@ -1031,6 +1035,14 @@ ${recallLoop.expected_followup ? `你心里想：${recallLoop.expected_followup}
 
   // 首次主动消息成就（静默）
   tryAchievement(companion.id, 'first_proactive_message');
+
+  // v2.1.1 Event Memory: 记录本次主动消息话题 + 标记事件
+  if (effectiveKind !== 'reminder') {
+    try { logTopic(companion.id, reply); } catch {}
+    if (opts.lifeMsg?.eventId) {
+      try { markMentioned(opts.lifeMsg.eventId); } catch {}
+    }
+  }
 
   log('info', `[Proactive] 已发送 companion=${companion.id} to=${companion.wechat_user_id} kind=${effectiveKind} segments=${segments.length} stickers=${totalStickers}`);
 }

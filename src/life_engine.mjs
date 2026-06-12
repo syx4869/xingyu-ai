@@ -22,6 +22,7 @@ import { getOrRefreshTodaySchedule, isSleepingNow, getSleepRow } from './sleep.m
 import { updateEmotionDimension } from './emotion_state.mjs';
 import { generateReply } from './ai.mjs';
 import { generateTimelineRecall } from './timeline.mjs';
+import { recordEvent, checkCooldown, generateEventId } from './event_memory.mjs';  // v2.1.1
 
 // ─── 状态机定义 ────────────────────────────────────────────────────────────────
 
@@ -457,6 +458,10 @@ function generateDreamForCompanion(companionId, habits) {
   } catch {}
   const content = `梦见${theme}${context ? '（' + context.slice(0, 60) + '）' : ''}`;
   recordDream(companionId, content, { theme, context });
+
+  // v2.1.1 Event Memory: 梦境写入事件记忆
+  recordEvent(companionId, 'dream', `${theme}${context ? '（' + context.slice(0, 30) + '）' : ''}`);
+
   return { content, theme, context };
 }
 
@@ -540,9 +545,16 @@ export async function generateLifeShare(companionId, companionName) {
 
   // 有梦醒来：分享梦境
   if (lastDream && lastDream.dream_date === shanghaiDateKey(new Date()) && relLevel >= 2) {
+    // v2.1.1 Event Memory: 检查梦境冷却
+    const cd = checkCooldown(companionId, 'dream');
+    if (cd.cooling) {
+      log('info', `[LifeEngine] 梦境冷却中 companion=${companionId} remaining=${cd.remainingMinutes}min`);
+      return null;
+    }
     return {
       kind: 'dream_share',
       prompt: `【场景】你刚睡醒，想起昨晚做了一个梦：${lastDream.content}。${relLevel >= 3 ? '你迫不及待想告诉他。' : '你觉得挺有意思的，想分享给他。'}请用刚睡醒的语气，自然分享，≤50字。`,
+      eventId: generateEventId(companionId, 'dream'),  // v2.1.1
     };
   }
 
@@ -608,6 +620,11 @@ export async function generateLifeProactiveMessage(companionId, companionName) {
   const share = await generateLifeShare(companionId, companionName);
   if (!share) return null;
 
+  // v2.1.1 Event Memory: 记录生活事件
+  if (share.eventId) {
+    recordEvent(companionId, 'life', share.kind);
+  }
+
   try {
     const db = getDb();
     const comp = db.prepare('SELECT * FROM companions WHERE id = ?').get(companionId);
@@ -625,7 +642,7 @@ export async function generateLifeProactiveMessage(companionId, companionName) {
       top_p: 0.95,
     }, { logLabel: '生活分享' });
 
-    return { text: reply, kind: share.kind };
+    return { text: reply, kind: share.kind, eventId: share.eventId };
   } catch (e) {
     log('warn', `[LifeEngine] generateLifeProactiveMessage failed companion=${companionId}: ${e.message}`);
     return null;

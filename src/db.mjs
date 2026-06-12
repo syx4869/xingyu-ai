@@ -67,6 +67,7 @@ export function getDb() {
     migrateRelationshipArc(); // v1.21.0 冲突与和好弧（关系事件状态机）
     migrateLifeEngine();   // v2.0.0 Life Engine 生活模拟引擎
     migrateTimeline();    // v2.1.0 Timeline Engine 时间线引擎
+    migrateEventMemory(); // v2.1.1 Event Memory 事件记忆（防主动消息重复）
   }
   return db;
 }
@@ -283,6 +284,92 @@ function migrateTimeline() {
     );
     CREATE INDEX IF NOT EXISTS idx_timeline_companion ON companion_timeline(companion_id, date_key);
   `);
+}
+
+// ─── v2.1.1 Event Memory: 事件记忆（防主动消息重复） ──────────────────────
+function migrateEventMemory() {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS event_memory (
+      id              TEXT PRIMARY KEY,
+      companion_id    INTEGER NOT NULL REFERENCES companions(id) ON DELETE CASCADE,
+      type            TEXT NOT NULL CHECK(type IN ('dream','life','movie','meet','event','milestone')),
+      summary         TEXT NOT NULL,
+      created_at      INTEGER NOT NULL,
+      mentioned_at    INTEGER,
+      mentioned_count INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE INDEX IF NOT EXISTS idx_event_memory_companion ON event_memory(companion_id, created_at DESC);
+
+    CREATE TABLE IF NOT EXISTS event_topic_log (
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      companion_id    INTEGER NOT NULL REFERENCES companions(id) ON DELETE CASCADE,
+      topic           TEXT NOT NULL,
+      created_at      INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_event_topic_log_companion ON event_topic_log(companion_id, created_at DESC);
+  `);
+}
+
+export function insertEventMemory(companionId, { id, type, summary, createdAt } = {}) {
+  try {
+    getDb().prepare(`
+      INSERT OR IGNORE INTO event_memory (id, companion_id, type, summary, created_at, mentioned_count)
+      VALUES (?, ?, ?, ?, ?, 0)
+    `).run(id, companionId, type, summary, createdAt || Date.now());
+    return true;
+  } catch { return false; }
+}
+
+export function markEventMentioned(eventId) {
+  try {
+    const now = Date.now();
+    getDb().prepare(`
+      UPDATE event_memory SET mentioned_at = ?, mentioned_count = mentioned_count + 1 WHERE id = ?
+    `).run(now, eventId);
+  } catch { /* fail-open */ }
+}
+
+export function getRecentEvents(companionId, hours = 72) {
+  try {
+    const since = Date.now() - hours * 3600_000;
+    return getDb().prepare(`
+      SELECT id, type, summary, created_at, mentioned_at, mentioned_count
+      FROM event_memory
+      WHERE companion_id = ? AND created_at >= ?
+      ORDER BY created_at DESC
+    `).all(companionId, since);
+  } catch { return []; }
+}
+
+export function getUnmentionedEvents(companionId, hours = 72) {
+  try {
+    const since = Date.now() - hours * 3600_000;
+    return getDb().prepare(`
+      SELECT id, type, summary, created_at, mentioned_at, mentioned_count
+      FROM event_memory
+      WHERE companion_id = ? AND created_at >= ? AND mentioned_count = 0
+      ORDER BY created_at DESC
+    `).all(companionId, since);
+  } catch { return []; }
+}
+
+export function insertTopicLog(companionId, topic) {
+  try {
+    getDb().prepare(`
+      INSERT INTO event_topic_log (companion_id, topic, created_at) VALUES (?, ?, ?)
+    `).run(companionId, topic, Date.now());
+  } catch { /* fail-open */ }
+}
+
+export function getRecentTopics(companionId, hours = 48) {
+  try {
+    const since = Date.now() - hours * 3600_000;
+    return getDb().prepare(`
+      SELECT topic FROM event_topic_log
+      WHERE companion_id = ? AND created_at >= ?
+      ORDER BY created_at DESC
+    `).all(companionId, since).map(r => r.topic);
+  } catch { return []; }
 }
 
 /** 照片尺寸流水写入（fail-open） */
