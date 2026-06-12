@@ -633,7 +633,7 @@ async function sendProactiveMessage(companion, kind, account, opts = {}) {
     return;
   }
   const ctx = account
-    ? { token: account.bot_token, botId: account.bot_id }
+    ? { baseUrl: account.base_url, token: account.bot_token, botId: account.bot_id }
     : getBotContextForCompanion(companion.id);
   if (!ctx?.token) {
     log('warn', `[Proactive] 找不到 bot context companion=${companion.id}`);

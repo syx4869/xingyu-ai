@@ -1126,7 +1126,11 @@ function previewText(text) {
 }
 
 async function sendAndRecord(ctx, toUser, text, contextToken) {
-  await sendTextMessage(ctx, toUser, text, contextToken);
+  const ok = await sendTextMessage(ctx, toUser, text, contextToken);
+  if (!ok) {
+    log('warn', `[Bot] sendAndRecord failed to=${toUser} — not saving to DB`);
+    return false;
+  }
   saveMessage({
     msgId:     `out_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
     fromUser:  ctx.botId || 'bot',
@@ -1135,6 +1139,7 @@ async function sendAndRecord(ctx, toUser, text, contextToken) {
     content:   text,
     direction: 'out',
   });
+  return true;
 }
 
 async function sendStickerAndRecord(ctx, toUser, picked, contextToken) {
