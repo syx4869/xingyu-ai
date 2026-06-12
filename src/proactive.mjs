@@ -371,7 +371,9 @@ async function sendProactiveMessageGuarded(companion, kind, account, opts = {}) 
   const { lastAt } = getProactiveLastSent(companion.id);
   const nowSec = Math.floor(Date.now() / 1000);
   const elapsed = nowSec - (lastAt || 0);
-  const hardGap = (kind === 'reminder' || kind === 'confession' || kind === 'life_share') ? 5 * 60 : PROACTIVE_HARD_GAP_SECONDS;
+  const hardGap = (kind === 'reminder' || kind === 'confession') ? 5 * 60
+  : kind === 'life_share' ? 30 * 60   // v2.1.1 Life Engine 分享间隔 30 分钟
+  : PROACTIVE_HARD_GAP_SECONDS;
   if (lastAt && elapsed < hardGap) {
     log('info', `[Proactive] 跳过：companion=${companion.id} kind=${kind} 距上次 ${elapsed}s < ${hardGap}s 硬间隔`);
     return 'throttled';

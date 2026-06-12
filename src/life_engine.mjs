@@ -23,6 +23,9 @@ import { updateEmotionDimension } from './emotion_state.mjs';
 import { generateReply } from './ai.mjs';
 import { generateTimelineRecall } from './timeline.mjs';
 
+// v2.1.1: 每天每个 companion 最多分享一次梦境（Map<companionId, dateKey>）
+const _dreamSharedDate = new Map();
+
 // ─── 状态机定义 ────────────────────────────────────────────────────────────────
 
 export const LIFE_STATES = {
@@ -526,8 +529,11 @@ export async function generateLifeShare(companionId, companionName) {
     };
   }
 
-  // 有梦醒来：分享梦境
-  if (lastDream && lastDream.dream_date === shanghaiDateKey(new Date()) && relLevel >= 2) {
+  // 有梦醒来：分享梦境（每天最多分享一次梦）
+  const todayKey = shanghaiDateKey(new Date());
+  const dreamAlreadyShared = _dreamSharedDate.get(companionId) === todayKey;
+  if (lastDream && lastDream.dream_date === todayKey && relLevel >= 2 && !dreamAlreadyShared) {
+    _dreamSharedDate.set(companionId, todayKey);
     return {
       kind: 'dream_share',
       prompt: `【场景】你刚睡醒，想起昨晚做了一个梦：${lastDream.content}。${relLevel >= 3 ? '你迫不及待想告诉他。' : '你觉得挺有意思的，想分享给他。'}请用刚睡醒的语气，自然分享，≤50字。`,
@@ -579,7 +585,7 @@ export async function generateLifeShare(companionId, companionName) {
   };
 
   const share = stateShares[state.state];
-  if (share && relLevel >= 2 && Math.random() < 0.3) {
+  if (share && relLevel >= 2 && Math.random() < 0.1) {   // v2.1.1: 10% 概率降低消息密度
     return share;
   }
 
