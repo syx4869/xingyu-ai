@@ -1,5 +1,13 @@
 # 星语 AI 变更日志
 
+## V1.2.1 (2026-06-11)
+
+### 修复
+- **`sendAndRecord` 发送失败检测**：`bot.mjs` 的 `sendAndRecord` 现在检查 `sendTextMessage` 返回值，发送失败时不写入 DB，避免"日志显示已发送但用户未收到"的幽灵消息
+- **`proactive` ctx 补全 `baseUrl`**：`sendProactiveMessage` 构造 `ctx` 时显式带上 `baseUrl`，消除与 `getBotContextForCompanion` 返回结构的不一致
+
+---
+
 ## V1.2 (2026-06-11)
 
 ### 修复
