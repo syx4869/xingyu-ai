@@ -67,7 +67,9 @@ const RANDOM_EVENTS = [
   { id: 'cold',            category: 'day',    emotion: { energy: -15, mood: 'tired' },desc: '感冒了' },
   { id: 'happy_surprise',  category: 'day',    emotion: { happiness: 10, mood: 'happy' },desc: '遇到了开心的事' },
   { id: 'find_song',       category: 'day',    emotion: { happiness: 8 },           desc: '发现了一首好听的歌' },
+  { id: 'find_anime',      category: 'day',    emotion: { happiness: 8 },           desc: '发现了一部好看的动漫' },
   { id: 'find_video',      category: 'day',    emotion: { happiness: 8 },           desc: '刷到一个有趣的视频' },
+  { id: 'take_photo',      category: 'day',    emotion: { happiness: 6 },           desc: '拍了一张好看的照片' },
   { id: 'think_of_user',   category: 'day',    emotion: { affection: 5 },           desc: '突然想到了你' },
   { id: 'receive_gift',    category: 'day',    emotion: { happiness: 12, affection: 5 },desc: '收到了礼物' },
   { id: 'mood_low',        category: 'day',    emotion: { sadness: 8, energy: -5 },  desc: '心情有点低落' },
@@ -281,47 +283,68 @@ function handleAwakeTick(companionId, state, habits, hour, minute, now) {
   let newState = null;
   let subState = null;
 
+  // 个性化作息偏移（生活习惯影响）
+  const offset = habits.sleep_type === 'night_owl' ? 1.5
+    : habits.sleep_type === 'early_bird' ? -1 : 0;
+
   // 起床时段
-  if (hour >= 6 && hour < 8 && currentState === LIFE_STATES.SLEEP) {
+  if (hour >= 6 + offset && hour < 8 + offset && currentState === LIFE_STATES.SLEEP) {
     newState = LIFE_STATES.WAKE_UP;
   }
   // 早餐
-  else if (hour >= 7 && hour < 9 && minute >= 0 && minute < 30 && currentState !== LIFE_STATES.MEAL) {
+  else if (hour >= 7 + offset && hour < 9 + offset && minute >= 0 && minute < 30 && currentState !== LIFE_STATES.MEAL) {
     newState = LIFE_STATES.MEAL;
     subState = 'breakfast';
   }
   // 工作/学习
-  else if (hour >= 9 && hour < 12 && currentState !== LIFE_STATES.WORK) {
+  else if (hour >= 9 + offset && hour < 12 + offset && currentState !== LIFE_STATES.WORK) {
     newState = LIFE_STATES.WORK;
     subState = 'morning';
   }
+  // 午休（Exercise 代替 — 下午活动身体）
+  else if (hour >= 12 && hour < 12.5 + offset && currentState === LIFE_STATES.WORK) {
+    newState = LIFE_STATES.EXERCISE;
+    subState = 'lunch_walk';
+  }
   // 午饭
-  else if (hour >= 12 && hour < 13 && currentState !== LIFE_STATES.MEAL) {
+  else if (hour >= 12 + offset && hour < 13 + offset && currentState !== LIFE_STATES.MEAL) {
     newState = LIFE_STATES.MEAL;
     subState = 'lunch';
   }
   // 下午工作
-  else if (hour >= 13 && hour < 17 && currentState !== LIFE_STATES.WORK) {
+  else if (hour >= 13 + offset && hour < 17 + offset && currentState !== LIFE_STATES.WORK) {
     newState = LIFE_STATES.WORK;
     subState = 'afternoon';
   }
-  // 傍晚休息
-  else if (hour >= 17 && hour < 18 && currentState !== LIFE_STATES.REST) {
-    newState = LIFE_STATES.REST;
+  // 傍晚运动
+  else if (hour >= 17 && hour < 18 && Math.random() < 0.3 && currentState !== LIFE_STATES.EXERCISE) {
+    newState = LIFE_STATES.EXERCISE;
+    subState = 'evening';
   }
   // 晚饭
-  else if (hour >= 18 && hour < 19 && currentState !== LIFE_STATES.MEAL) {
+  else if (hour >= 18 + offset && hour < 19 + offset && currentState !== LIFE_STATES.MEAL) {
     newState = LIFE_STATES.MEAL;
     subState = 'dinner';
   }
+  // 晚间社交（偶尔出门）
+  else if (hour >= 19 && hour < 20 && Math.random() < 0.15 && currentState !== LIFE_STATES.SOCIAL) {
+    newState = LIFE_STATES.SOCIAL;
+    subState = 'evening_out';
+  }
   // 晚间娱乐/休息
-  else if (hour >= 19 && hour < 22 && currentState !== LIFE_STATES.ENTERTAINMENT) {
+  else if (hour >= 19 + offset && hour < 22 + offset && currentState !== LIFE_STATES.ENTERTAINMENT) {
     newState = LIFE_STATES.ENTERTAINMENT;
   }
   // 准备入睡
-  else if (hour >= 22 && currentState !== LIFE_STATES.REST && currentState !== LIFE_STATES.SLEEP) {
+  else if (hour >= 22 + offset && currentState !== LIFE_STATES.REST && currentState !== LIFE_STATES.SLEEP) {
     newState = LIFE_STATES.REST;
     subState = 'wind_down';
+  }
+  // 周末出行（Travel）
+  else if (hour >= 10 && hour < 16 && Math.random() < 0.08 && currentState !== LIFE_STATES.TRAVEL
+    && [0, 6].includes(now.getDay())) {
+    newState = LIFE_STATES.TRAVEL;
+    subState = 'weekend_trip';
   }
 
   if (newState && newState !== currentState) {
@@ -497,7 +520,7 @@ export async function generateLifeShare(companionId, companionName) {
   // 有随机事件：分享
   if (events.length > 0 && relLevel >= 1) {
     const latest = events[events.length - 1];
-    const shareable = ['happy_surprise', 'find_song', 'find_video', 'think_of_user', 'receive_gift', 'mood_low', 'headache', 'cold'];
+    const shareable = ['happy_surprise', 'find_song', 'find_anime', 'find_video', 'take_photo', 'think_of_user', 'receive_gift', 'mood_low', 'headache', 'cold'];
     if (shareable.includes(latest.event_id)) {
       return {
         kind: 'event_share',
@@ -519,6 +542,22 @@ export async function generateLifeShare(companionId, companionName) {
     [LIFE_STATES.REST]: {
       kind: 'rest',
       prompt: `【场景】你正在休息，放空自己。${relLevel >= 2 ? '突然想给他发条消息。' : '在想他今天过得怎么样。'}请用慵懒的语气，≤40字。`,
+    },
+    [LIFE_STATES.EXERCISE]: {
+      kind: 'exercise',
+      prompt: `【场景】你正在${state.sub_state === 'lunch_walk' ? '午休散步' : '傍晚运动'}。${relLevel >= 2 ? '想跟他分享运动时的心情。' : '在想是不是该运动了。'}请用活力自然的语气，≤40字。`,
+    },
+    [LIFE_STATES.SOCIAL]: {
+      kind: 'social',
+      prompt: `【场景】你正和朋友在外面。${relLevel >= 2 ? '突然想给他发条消息。' : '在想他今天在干嘛。'}请用社交中偷闲的语气，自然不刻意，≤40字。`,
+    },
+    [LIFE_STATES.TRAVEL]: {
+      kind: 'travel',
+      prompt: `【场景】你正在外面${state.sub_state === 'weekend_trip' ? '周末出行' : '出门'}。${relLevel >= 2 ? '想跟他分享路上看到的风景。' : '在想是不是该分享点什么。'}请用旅途中轻松的语气，≤50字。`,
+    },
+    [LIFE_STATES.WORK]: {
+      kind: 'work',
+      prompt: `【场景】你正在${state.sub_state === 'morning' ? '上午' : '下午'}工作/学习。${relLevel >= 2 ? '突然想给他发条消息摸鱼。' : '有点累了。'}请用摸鱼偷闲的语气，自然不刻意，≤40字。`,
     },
   };
 

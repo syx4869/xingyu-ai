@@ -43,10 +43,10 @@ import { buildShapingPromptHint } from './shaping.mjs';
 import { evaluateProactive, recordProactiveSent } from './proactive_engine.mjs';
 import { getArcProactivePolicy, getArcExpressionContext, buildOliveBranchHint, markOliveBranchSent } from './relationship_arc_runtime.mjs';
 import { tryAchievement } from './achievements.mjs';
-import {
-  getSleepRow, getOrRefreshTodaySchedule, exitSleep,
+import { getSleepRow, getOrRefreshTodaySchedule, exitSleep,
   drainMissed, upsertSleepSchedule,
 } from './sleep.mjs';
+import { generateLifeProactiveMessage } from './life_engine.mjs';
 
 // ─── Proactive Engine 版本选择 ────────────────────────────────────────────────
 // PROACTIVE_ENGINE=v2 启用 evaluateProactive() 决策层（推荐）
@@ -246,6 +246,16 @@ async function tick(now = new Date()) {
             item.sent = true;
           }
         }
+
+        // v2.0 Life Engine: 自主行为分享（不占 schedule 配额，独立于日程）
+        try {
+          const lifeMsg = await generateLifeProactiveMessage(companion.id, companion.name);
+          if (lifeMsg?.text) {
+            await sendProactiveMessageGuarded(companion, 'life_share', account, { lifeMsg });
+          }
+        } catch (e) {
+          log('warn', `[Proactive] LifeEngine 分享异常 companion=${companion.id}: ${e.message}`);
+        }
       } catch (e) {
         // v1.5.2 B2 兜底：任何一个 companion 的本 tick 异常都不能中断后面的处理
         log('error', `[Proactive] companion=${companion.id} 本 tick 异常，跳过: ${e.message}`);
@@ -360,7 +370,7 @@ async function sendProactiveMessageGuarded(companion, kind, account, opts = {}) 
   const { lastAt } = getProactiveLastSent(companion.id);
   const nowSec = Math.floor(Date.now() / 1000);
   const elapsed = nowSec - (lastAt || 0);
-  const hardGap = (kind === 'reminder' || kind === 'confession') ? 5 * 60 : PROACTIVE_HARD_GAP_SECONDS;
+  const hardGap = (kind === 'reminder' || kind === 'confession' || kind === 'life_share') ? 5 * 60 : PROACTIVE_HARD_GAP_SECONDS;
   if (lastAt && elapsed < hardGap) {
     log('info', `[Proactive] 跳过：companion=${companion.id} kind=${kind} 距上次 ${elapsed}s < ${hardGap}s 硬间隔`);
     return 'throttled';
@@ -857,11 +867,18 @@ ${recallLoop.expected_followup ? `你心里想：${recallLoop.expected_followup}
   }
 
   const proactiveBinding = getActiveWechatBinding(companion.wechat_user_id, companion.bot_id);
-  let reply = await generateReply(systemPrompt, history, userMessage, {
-    temperature: companion.temperature,
-    max_tokens: Math.min(companion.max_tokens || 300, 300),
-    top_p: companion.top_p,
-  }, { accountId: proactiveBinding?.account_id || null, logLabel: '主动消息' });
+  // v2.0 Life Engine: 自主行为分享使用预生成文本，不调 LLM
+  let reply;
+  if (effectiveKind === 'life_share' && opts.lifeMsg?.text) {
+    reply = opts.lifeMsg.text;
+    log('info', `[Proactive] LifeEngine 分享 companion=${companion.id} kind=${opts.lifeMsg.kind}`);
+  } else {
+    reply = await generateReply(systemPrompt, history, userMessage, {
+      temperature: companion.temperature,
+      max_tokens: Math.min(companion.max_tokens || 300, 300),
+      top_p: companion.top_p,
+    }, { accountId: proactiveBinding?.account_id || null, logLabel: '主动消息' });
+  }
   reply = safeOutboundReply(reply);
   // #281：文本 proactive 永远没有真实照片（场景照是 kind=photo 独立分支）——表情绝不冒充照片
   reply = scrubPhotoImpersonation(reply, companion.id);
@@ -956,6 +973,7 @@ ${recallLoop.expected_followup ? `你心里想：${recallLoop.expected_followup}
     : effectiveKind === 'reminder' ? '纪念日祝福'
     : effectiveKind === 'recall' ? 'recall 关心'
     : effectiveKind === 'lastcall' ? '轻声问候'
+    : effectiveKind === 'life_share' ? '生活分享'
     : '主动消息';
   saveConversationTurn(companion.id, 'assistant', reply, turnTopic);
 

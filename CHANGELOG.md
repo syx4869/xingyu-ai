@@ -1,5 +1,23 @@
 # 星语 AI 变更日志
 
+## V2.0 (2026-06-12)
+
+### 新增 — Life Engine 生活模拟引擎（完整版）
+- **状态机全覆盖**：Sleep / Work / Rest / Entertainment / Travel / Social / Meal / Exercise 全部接入日程调度
+- **Sleep 细分**：DeepSleep / LightSleep / Dreaming / MidnightAwake / Insomnia
+- **随机事件系统**：16 种事件（噩梦/半夜醒/失眠/口渴/起夜/睡过头/感冒/头疼/开心事/新歌/新动漫/有趣视频/照片/想到用户/收到礼物/心情低落）
+- **半夜醒来机制**：1~15% 概率，按性格（night_owl/early_bird）和关系等级调整，醒来检查未读消息
+- **梦境系统**：根据记忆 + 偏好生成梦境，醒来后可分享
+- **生活习惯系统**：独立作息（sleep_type 偏移所有日程时间），兴趣/喜好影响梦境和分享内容
+- **自主行为系统**：Work/Meal/Entertainment/Exercise/Social/Travel 各状态均可触发日常分享，音乐/动漫/照片分享
+- **全链路联动**：生活事件联动情绪（applyEventEmotion），记忆用于梦境，关系等级影响分享频率，接入 proactive.mjs 每分钟触发自主分享
+
+### 修改
+- `life_engine.mjs`：补全 8 状态机调度 + 个性化作息偏移 + 音乐/动漫/照片事件
+- `proactive.mjs`：导入 `generateLifeProactiveMessage`，`life_share` kind 每分钟触发，5 分钟硬间隔，使用预生成文本不调 LLM
+
+---
+
 ## V1.2.1 (2026-06-11)
 
 ### 修复
