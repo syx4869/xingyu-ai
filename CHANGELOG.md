@@ -1,5 +1,38 @@
 # 星语 AI 变更日志
 
+## V2.2.0 (2026-06-13)
+
+### 新增 — Event State Machine + Idempotency（事件生命周期状态机 + 幂等执行）
+
+**根因**：event_memory 只记录"生成"，没有执行状态追踪，同一事件可在多个 tick 被重复执行。
+
+**Event Lifecycle 状态机**：
+```
+CREATED → PLANNED → GENERATED → SENT → ACKNOWLEDGED → CLOSED
+```
+- 合法流转校验（非法流转拒绝 + warn 日志）
+- 终态（CLOSED / ACKNOWLEDGED）事件：冷却/去重自动排除
+- 用户回复时自动 SENT → ACKNOWLEDGED
+
+**幂等机制**：
+- `event_hash`：SHA-256 截断（companionId + type + summary），相同内容 → 相同 hash → 拒绝重复 INSERT
+- `execution_lock`：CAS 原子操作（`UPDATE ... WHERE execution_lock = 0`），防止并发 tick 重复执行
+- `recordEvent()` 内部幂等检查：hash 已存在 → 返回现有 eventId
+
+**新增字段**（event_memory 表）：
+- `event_state` TEXT — 生命周期状态
+- `event_hash` TEXT — 内容幂等哈希
+- `last_tick` INTEGER — 最后 tick 时间戳
+- `execution_lock` INTEGER — 执行锁（0/1）
+
+### 修改
+- `db.mjs`：`migrateEventMemoryV2()` 添加 4 列 + 6 个新 CRUD（insertEventMemoryV2 / getEventByHash / transitionEventState / acquireEventLock / releaseEventLock / getRecentEventsByState）
+- `event_memory.mjs`：v2.0 重写 — EVENT_STATES 枚举 + 合法流转校验 + eventHash + 幂等 guard + 执行锁 + recordEvent 内置幂等
+- `life_engine.mjs`：`generateDreamForCompanion` 包裹 tryAcquireExecLock/markGenerated/releaseExecLock + findExistingEvent 幂等检查
+- `proactive_engine.mjs`：`recordUserReplied` 调用 `acknowledgeRecentSent` 流转 SENT→ACKNOWLEDGED
+
+---
+
 ## V2.1.3 (2026-06-12)
 
 ### 修复 — 梦境重复问题（Event Memory 链路修复）

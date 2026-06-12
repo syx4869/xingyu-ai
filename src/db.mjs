@@ -68,6 +68,7 @@ export function getDb() {
     migrateLifeEngine();   // v2.0.0 Life Engine 生活模拟引擎
     migrateTimeline();    // v2.1.0 Timeline Engine 时间线引擎
     migrateEventMemory(); // v2.1.1 Event Memory 事件记忆（防主动消息重复）
+    migrateEventMemoryV2(); // v2.2.0 Event State Machine + Idempotency
   }
   return db;
 }
@@ -333,7 +334,7 @@ export function getRecentEvents(companionId, hours = 72) {
   try {
     const since = Date.now() - hours * 3600_000;
     return getDb().prepare(`
-      SELECT id, type, summary, created_at, mentioned_at, mentioned_count
+      SELECT id, type, summary, created_at, mentioned_at, mentioned_count, event_state, event_hash, execution_lock
       FROM event_memory
       WHERE companion_id = ? AND created_at >= ?
       ORDER BY created_at DESC
@@ -369,6 +370,88 @@ export function getRecentTopics(companionId, hours = 48) {
       WHERE companion_id = ? AND created_at >= ?
       ORDER BY created_at DESC
     `).all(companionId, since).map(r => r.topic);
+  } catch { return []; }
+}
+
+// ─── v2.2.0 Event State Machine + Idempotency ─────────────────────────────
+function migrateEventMemoryV2() {
+  // SQLite 不支持 IF NOT EXISTS 在 ALTER TABLE，用 try/catch 忽略重复列
+  const cols = ['event_state', 'event_hash', 'last_tick', 'execution_lock'];
+  for (const col of cols) {
+    try {
+      const defs = {
+        event_state:      "TEXT NOT NULL DEFAULT 'CREATED'",
+        event_hash:       'TEXT',
+        last_tick:        'INTEGER',
+        execution_lock:   'INTEGER NOT NULL DEFAULT 0',
+      };
+      getDb().exec(`ALTER TABLE event_memory ADD COLUMN ${col} ${defs[col]}`);
+    } catch { /* 列已存在，跳过 */ }
+  }
+  // 给已有行补默认值
+  try {
+    getDb().exec(`UPDATE event_memory SET event_state = 'CREATED' WHERE event_state IS NULL`);
+    getDb().exec(`UPDATE event_memory SET execution_lock = 0 WHERE execution_lock IS NULL`);
+  } catch {}
+}
+
+/** 写入事件时同时写入 hash + state */
+export function insertEventMemoryV2(companionId, { id, type, summary, eventHash, createdAt } = {}) {
+  try {
+    getDb().prepare(`
+      INSERT OR IGNORE INTO event_memory (id, companion_id, type, summary, created_at, mentioned_count, event_state, event_hash, execution_lock)
+      VALUES (?, ?, ?, ?, ?, 0, 'CREATED', ?, 0)
+    `).run(id, companionId, type, summary, createdAt || Date.now(), eventHash || null);
+    return true;
+  } catch { return false; }
+}
+
+/** 通过 hash 查找是否已存在（幂等检查） */
+export function getEventByHash(companionId, eventHash) {
+  try {
+    return getDb().prepare(`
+      SELECT * FROM event_memory WHERE companion_id = ? AND event_hash = ? LIMIT 1
+    `).get(companionId, eventHash);
+  } catch { return null; }
+}
+
+/** 状态流转：currentState → newState */
+export function transitionEventState(eventId, newState) {
+  try {
+    const now = Date.now();
+    getDb().prepare(`
+      UPDATE event_memory SET event_state = ?, last_tick = ? WHERE id = ?
+    `).run(newState, now, eventId);
+  } catch { /* fail-open */ }
+}
+
+/** 获取执行锁（CAS 原子操作）。返回 true 表示获取成功 */
+export function acquireEventLock(eventId) {
+  try {
+    const r = getDb().prepare(`
+      UPDATE event_memory SET execution_lock = 1 WHERE id = ? AND execution_lock = 0
+    `).run(eventId);
+    return r.changes > 0;
+  } catch { return false; }
+}
+
+/** 释放执行锁 */
+export function releaseEventLock(eventId) {
+  try {
+    getDb().prepare(`UPDATE event_memory SET execution_lock = 0 WHERE id = ?`).run(eventId);
+  } catch { /* fail-open */ }
+}
+
+/** 获取指定状态的 recent events */
+export function getRecentEventsByState(companionId, state, hours = 72) {
+  try {
+    const since = Date.now() - hours * 3600_000;
+    return getDb().prepare(`
+      SELECT id, type, summary, created_at, mentioned_at, mentioned_count, event_state, event_hash, execution_lock
+      FROM event_memory
+      WHERE companion_id = ? AND created_at >= ? AND event_state = ?
+      ORDER BY created_at DESC
+    `).all(companionId, since, state);
   } catch { return []; }
 }
 

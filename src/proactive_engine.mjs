@@ -9,6 +9,7 @@
 import { log } from './logger.mjs';
 import { patchCompanion, getDailySchedule, shanghaiDateKey } from './db.mjs';
 import { getEmotionStateWithDefaults } from './emotion_state.mjs';
+import { acknowledgeRecentSent } from './event_memory.mjs';  // v2.2.0
 
 // 上海时区安全的小时/分钟获取（避免 getHours() 用服务器本地时间）
 function shanghaiHour(now = new Date()) {
@@ -334,6 +335,8 @@ export function recordUserReplied(companionId) {
   } catch (e) {
     log('warn', `[ProactiveEngine] recordUserReplied failed: ${e.message}`);
   }
+  // v2.2.0 Event State Machine: 用户回复 → 最近 SENT 事件 → ACKNOWLEDGED
+  try { acknowledgeRecentSent(companionId); } catch {}
 }
 
 // ─── Decide whether to send proactive now ────────────────────────────────────

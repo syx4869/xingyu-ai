@@ -22,7 +22,7 @@ import { getOrRefreshTodaySchedule, isSleepingNow, getSleepRow } from './sleep.m
 import { updateEmotionDimension } from './emotion_state.mjs';
 import { generateReply } from './ai.mjs';
 import { generateTimelineRecall } from './timeline.mjs';
-import { recordEvent, checkCooldown, generateEventId, getRecentDreamEvent, isDreamGenerationAllowed, isDreamAlreadyShared, checkTopicDuplicate } from './event_memory.mjs';  // v2.1.1, v2.1.3
+import { recordEvent, checkCooldown, generateEventId, getRecentDreamEvent, isDreamGenerationAllowed, isDreamAlreadyShared, checkTopicDuplicate, markGenerated, tryAcquireExecLock, releaseExecLock, findExistingEvent, EVENT_STATES } from './event_memory.mjs';  // v2.1.1, v2.1.3, v2.2.0
 
 // ─── 状态机定义 ────────────────────────────────────────────────────────────────
 
@@ -465,13 +465,33 @@ function generateDreamForCompanion(companionId, habits) {
       if (/猫|狗|宠物/.test(prefStr)) theme = '在公园里喂猫';
     }
   } catch {}
+
+  const summary = `${theme}${context ? '（' + context.slice(0, 30) + '）' : ''}`;
+
+  // v2.2.0 幂等检查：相同 hash 已存在 → 返回现有
+  const existing = findExistingEvent(companionId, 'dream', summary);
+  if (existing) {
+    log('info', `[LifeEngine] 梦境幂等命中 id=${existing.id} — 跳过生成`);
+    return { content: `梦见${theme}`, theme, context, eventId: existing.id };
+  }
+
   const content = `梦见${theme}${context ? '（' + context.slice(0, 60) + '）' : ''}`;
   recordDream(companionId, content, { theme, context });
 
-  // v2.1.3 Event Memory: 梦境写入事件记忆，返回 eventId 供后续分享标记
-  const eventId = recordEvent(companionId, 'dream', `${theme}${context ? '（' + context.slice(0, 30) + '）' : ''}`);
+  // v2.2.0 Event Memory: 写入事件记忆 + 获取执行锁 + 流转 GENERATED
+  const eventId = recordEvent(companionId, 'dream', summary);
+  if (!eventId) return null;
 
-  return { content, theme, context, eventId };
+  if (!tryAcquireExecLock(eventId)) {
+    log('warn', `[LifeEngine] 梦境执行锁获取失败 id=${eventId} — 可能并发`);
+    return null;
+  }
+  try {
+    markGenerated(eventId);
+    return { content, theme, context, eventId };
+  } finally {
+    releaseExecLock(eventId);
+  }
 }
 
 // ─── 随机事件选择 ──────────────────────────────────────────────────────────────
