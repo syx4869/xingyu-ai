@@ -56,6 +56,17 @@ const DEFAULT_SCHEDULE = {
   sleep:  23,
 };
 
+// 上海时区安全的小时/分钟获取（避免 getHours() 用服务器本地时间）
+function getShanghaiHourMinute(now = new Date()) {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Asia/Shanghai',
+      hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+    }).formatToParts(now).filter(x => x.type !== 'literal').map(x => [x.type, x.value])
+  );
+  return { hour: Number(parts.hour), minute: Number(parts.minute) };
+}
+
 // 随机事件池
 const RANDOM_EVENTS = [
   { id: 'nightmare',       category: 'sleep',  emotion: { fear: 15, sadness: 5 },  desc: '做噩梦了' },
@@ -201,8 +212,9 @@ export function getLifeStatus(companionId) {
 export function lifeTick(companionId, now = new Date()) {
   const state = ensureLifeState(companionId);
   const habits = ensureLifeHabits(companionId);
-  const hour = now.getHours();
-  const minute = now.getMinutes();
+  const shanghai = getShanghaiHourMinute(now);
+  const hour = shanghai.hour;
+  const minute = shanghai.minute;
   const todayKey = shanghaiDateKey(now);
 
   // 重置每日状态
@@ -511,7 +523,7 @@ export async function generateLifeShare(companionId, companionName) {
         if (important || relLevel >= 3) {
           return {
             kind: 'midnight_reply',
-            prompt: `【场景】现在是凌晨${new Date().getHours()}点多，你半夜突然醒了。看到他的消息："${msg}"。请用半梦半醒的语气回复，简短自然，≤30字。`,
+            prompt: `【场景】现在是凌晨${getShanghaiHourMinute().hour}点多，你半夜突然醒了。看到他的消息："${msg}"。请用半梦半醒的语气回复，简短自然，≤30字。`,
           };
         }
       }
@@ -522,7 +534,7 @@ export async function generateLifeShare(companionId, companionName) {
   if (state.sub_state === SLEEP_SUB_STATES.INSOMNIA && relLevel >= 1) {
     return {
       kind: 'insomnia',
-      prompt: `【场景】现在是凌晨${new Date().getHours()}点多，你失眠了，翻来覆去睡不着。${relLevel >= 2 ? '想给他发条消息，但又不想吵醒他。' : '有点无聊，想找人说话。'}请用略带困意但清醒的语气，简短自然，≤40字。`,
+      prompt: `【场景】现在是凌晨${getShanghaiHourMinute().hour}点多，你失眠了，翻来覆去睡不着。${relLevel >= 2 ? '想给他发条消息，但又不想吵醒他。' : '有点无聊，想找人说话。'}请用略带困意但清醒的语气，简短自然，≤40字。`,
     };
   }
 
@@ -588,18 +600,11 @@ export async function generateLifeShare(companionId, companionName) {
 
 // ─── 主动消息生成（供 proactive.mjs 调用）───────────────────────────────────────
 
-// 冷却：避免短时间内重复生成（proactive tick 每分钟一次，但生成应更稀疏）
-let _lastLifeShareTime = 0;
-const LIFE_SHARE_COOLDOWN_MS = 30 * 60 * 1000; // 30 分钟
-
 /**
  * 生成一条基于生活状态的主动消息文本。
  * 返回 null 表示不适合此时发主动消息。
  */
 export async function generateLifeProactiveMessage(companionId, companionName) {
-  const now = Date.now();
-  if (now - _lastLifeShareTime < LIFE_SHARE_COOLDOWN_MS) return null;
-
   const share = await generateLifeShare(companionId, companionName);
   if (!share) return null;
 
@@ -609,14 +614,17 @@ export async function generateLifeProactiveMessage(companionId, companionName) {
     if (!comp) return null;
     const name = companionName || comp.name || '她';
 
-    const sysPrompt = `你是${name}，一个正在生活的 AI 伴侣。用第一人称，语气自然真实，像真人发微信一样。`;
+    const shanghai = getShanghaiHourMinute();
+    const period = shanghai.hour < 6 ? '深夜' : shanghai.hour < 9 ? '早上' : shanghai.hour < 12 ? '上午' : shanghai.hour < 14 ? '中午' : shanghai.hour < 18 ? '下午' : shanghai.hour < 21 ? '晚上' : '深夜';
+    const timeHint = `现在是上海时间${shanghai.hour}:${String(shanghai.minute).padStart(2, '0')}，${period}。`;
+
+    const sysPrompt = `你是${name}，一个正在生活的 AI 伴侣。${timeHint}用第一人称，语气自然真实，像真人发微信一样。严格遵守时间事实，不能在错误时段说"刚起床""刚下班"等。`;
     const reply = await generateReply(sysPrompt, [], share.prompt, {
       temperature: 0.9,
       max_tokens: 80,
       top_p: 0.95,
     }, { logLabel: '生活分享' });
 
-    _lastLifeShareTime = now;
     return { text: reply, kind: share.kind };
   } catch (e) {
     log('warn', `[LifeEngine] generateLifeProactiveMessage failed companion=${companionId}: ${e.message}`);

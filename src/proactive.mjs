@@ -249,16 +249,10 @@ async function tick(now = new Date()) {
         }
 
         // v2.0 Life Engine: 自主行为分享（不占 schedule 配额，独立于日程）
-        // v2.1.1: 先检查硬间隔再调 AI，避免每分钟生成但被间隔拦截浪费 API
         try {
-          const { lastAt: lifeLastAt } = getProactiveLastSent(companion.id);
-          const lifeElapsed = Math.floor(Date.now() / 1000) - (lifeLastAt || 0);
-          const lifeHardGap = 30 * 60; // 30 分钟硬间隔
-          if (!lifeLastAt || lifeElapsed >= lifeHardGap) {
-            const lifeMsg = await generateLifeProactiveMessage(companion.id, companion.name);
-            if (lifeMsg?.text) {
-              await sendProactiveMessageGuarded(companion, 'life_share', account, { lifeMsg });
-            }
+          const lifeMsg = await generateLifeProactiveMessage(companion.id, companion.name);
+          if (lifeMsg?.text) {
+            await sendProactiveMessageGuarded(companion, 'life_share', account, { lifeMsg });
           }
         } catch (e) {
           log('warn', `[Proactive] LifeEngine 分享异常 companion=${companion.id}: ${e.message}`);
@@ -377,7 +371,7 @@ async function sendProactiveMessageGuarded(companion, kind, account, opts = {}) 
   const { lastAt } = getProactiveLastSent(companion.id);
   const nowSec = Math.floor(Date.now() / 1000);
   const elapsed = nowSec - (lastAt || 0);
-  const hardGap = (kind === 'reminder' || kind === 'confession') ? 5 * 60 : PROACTIVE_HARD_GAP_SECONDS;
+  const hardGap = (kind === 'reminder' || kind === 'confession' || kind === 'life_share') ? 5 * 60 : PROACTIVE_HARD_GAP_SECONDS;
   if (lastAt && elapsed < hardGap) {
     log('info', `[Proactive] 跳过：companion=${companion.id} kind=${kind} 距上次 ${elapsed}s < ${hardGap}s 硬间隔`);
     return 'throttled';

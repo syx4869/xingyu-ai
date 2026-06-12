@@ -2,11 +2,10 @@
 
 ## V2.1.1 (2026-06-12)
 
-### 修复 — Life Engine 主动消息频率过高
-- **根因**：`generateLifeProactiveMessage` 每 60 秒 tick 都调 AI 生成消息，但 82% 被硬间隔拦截丢弃，浪费 API 调用且内容高度重复（全是"梦见在图书馆看书"变体）
-- **修复 1**：`proactive.mjs` tick 中先检查 30 分钟硬间隔再调 AI，避免无效生成
-- **修复 2**：`life_engine.mjs` 增加 `_lastLifeShareTime` 进程内冷却（30 分钟），双重保险
-- **修复 3**：`life_share` 不再享受 5 分钟短间隔特权，回归默认 25 分钟硬间隔
+### 修复
+- **life_engine.mjs 时区 bug**：`lifeTick()` / `generateLifeShare()` 中 `new Date().getHours()` 返回服务器本地时间而非上海时间，导致状态机时段判断和场景描述全部偏移（如 UTC 服务器差 8 小时）
+- **generateLifeProactiveMessage 缺时间注入**：sysPrompt 完全没有时间信息，AI 在生活分享路径下不知道现在几点，导致在错误时段说"刚起床""刚下班"等
+- 新增 `getShanghaiHourMinute()` 工具函数，统一使用 `Intl.DateTimeFormat` + `Asia/Shanghai` 获取时间
 
 ---
 
