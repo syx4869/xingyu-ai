@@ -11,6 +11,8 @@
  * Copyright (c) 2026 星语 AI Contributors. MIT License.
  */
 
+import { log } from './logger.mjs';
+
 // ─── ① 核心身份锁 ────────────────────────────────────────────────────────────
 
 export function buildIdentityLock(name) {
@@ -145,4 +147,58 @@ export function buildIdentityConstitution(name, { sleepMode = false, proactiveMo
   rules.push(buildFailSafeRule());
 
   return `\n\n${'='.repeat(60)}\n【身份执行宪法 EXECUTION CONSTITUTION — 最高优先级】\n${'='.repeat(60)}${rules.join('\n')}`;
+}
+
+// ─── 硬约束出站扫描 ──────────────────────────────────────────────────────────
+
+/**
+ * 检测身份错位：AI 名字被用于称呼用户。
+ * 模式：
+ *  - "晚安，小溪" / "明天见，小溪"
+ *  - "小溪你觉得呢" / "小溪你喜欢吗"
+ *  - 句尾出现 AI 名字（逗号/句号后）
+ *
+ * @param {string} reply - AI 生成的回复
+ * @param {string} name - AI 角色名字
+ * @returns {{ scrubbed: boolean, fixedReply: string }}
+ */
+export function scrubIdentityError(reply, name) {
+  if (typeof reply !== 'string' || !reply || !name) {
+    return { scrubbed: false, fixedReply: reply || '' };
+  }
+
+  const n = escapeReg(name);
+  let fixed = reply;
+  let scrubbed = false;
+
+  // 模式 1：句尾称呼（逗号/句号/感叹号/问号后 + AI 名字）
+  // 例："晚安，小溪" → "晚安"
+  const tailPattern = new RegExp(`([，,。！？\\s]+)\\s*${n}\\s*([。！？\\s]*$)`, 'g');
+  if (tailPattern.test(fixed)) {
+    fixed = fixed.replace(tailPattern, '$2').trim();
+    scrubbed = true;
+    log('warn', `[IdentityScrub] 句尾称呼命中 → 移除 "${name}" from="${reply.slice(0, 40)}"`);
+  }
+
+  // 模式 2：句中称呼（"小溪你觉得呢" → "你觉得呢"）
+  const midPattern = new RegExp(`${n}\\s*(你|你们)`, 'g');
+  if (midPattern.test(fixed)) {
+    fixed = fixed.replace(midPattern, '$1');
+    scrubbed = true;
+    log('warn', `[IdentityScrub] 句中称呼命中 → 移除 "${name}" from="${reply.slice(0, 40)}"`);
+  }
+
+  // 模式 3：自指错位（"我今天和小溪聊天" → "我今天和你聊天"）
+  const selfPattern = new RegExp(`(我|我们)\\s*(今天|刚才|昨天)?\\s*(和|跟)\\s*${n}`, 'g');
+  if (selfPattern.test(fixed)) {
+    fixed = fixed.replace(selfPattern, '$1$2$3你');
+    scrubbed = true;
+    log('warn', `[IdentityScrub] 自指错位命中 → 替换 "${name}" 为 "你"`);
+  }
+
+  return { scrubbed, fixedReply: fixed || reply };
+}
+
+function escapeReg(s) {
+  return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }

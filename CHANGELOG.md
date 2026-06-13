@@ -2,22 +2,29 @@
 
 ## V2.3.0 (2026-06-13)
 
-### 新增 — 身份执行宪法（Identity Execution Constitution）
+### 新增 — 身份执行宪法（Identity Execution Constitution）+ 硬约束出站扫描
 
-**问题**：AI 存在身份错位（把用户叫成"小溪"）、context 丢失、多线程发言混乱、人格输出错乱。
+**问题**：AI 在主动消息中说"晚安，小溪"——身份错位，把用户叫成了自己的名字。
+Prompt 规则对 LLM 是软约束，需要加**硬约束出口扫描**。
 
 **八层约束架构**：
 
 | 层 | 模块 | 作用 |
 |----|------|------|
 | 1 | `identity_rules.mjs` | 身份锁：禁止 AI 把用户叫成自己名字 |
-| 2 | `identity_rules.mjs` | Context 强制绑定：缺失 user_id/companion_id → 停止生成 |
-| 3 | `identity_rules.mjs` | Sleep 隔离：睡眠时禁止访问用户名字、禁止生成主动消息 |
+| 2 | `identity_rules.mjs` | Context 强制绑定：缺失 → 停止生成 |
+| 3 | `identity_rules.mjs` | Sleep 隔离：睡眠时禁止主动消息 |
 | 4 | `speech_lock.mjs` | 发言串行锁：同一 companion 同时只能输出一条消息 |
 | 5 | `identity_rules.mjs` | 梦境去重：每日最多 1 个，相似度 >75% 禁止 |
-| 6 | `identity_rules.mjs` | 人格输出：禁止自言自语/错称呼/把用户写进自己的梦 |
-| 7 | `companion.mjs` | 标准化 Life Engine 执行流程 |
-| 8 | `identity_rules.mjs` | 故障安全：任何异常 → return null，不允许 fallback 生成 |
+| 6 | `identity_rules.mjs` | 人格输出：禁止自言自语/错称呼 |
+| 7 | `companion.mjs` | 身份宪法 prompt 注入（回复 + 主动消息） |
+| 8 | `identity_rules.mjs` | 故障安全：任何异常 → return null |
+
+**硬约束出站扫描 `scrubIdentityError`**：
+- 句尾称呼："晚安，小溪" → "晚安"
+- 句中称呼："小溪你觉得呢" → "你觉得呢"
+- 自指错位："我今天和小溪聊天" → "我今天和你聊天"
+- 所有模式均记录 warn 日志
 
 **Speech Serialization Lock**：
 - 全局 `Map<companionId, {lockedAt}>` 实现 CAS 锁
@@ -25,20 +32,14 @@
 - `bot.mjs`：`handleMessage` 发言前获取锁，`finally` 释放
 - `proactive.mjs`：`sendProactiveMessage` 发言前获取锁，`try/finally` 包裹
 
-**梦境 7 天相似度去重**：
-- `isDreamSimilarToRecent()`：新梦境主题与 7 天内所有梦境比较
-- 相似度 > 0.75 → 自动换主题（最多 3 次），仍失败 → 放弃生成
-
 ### 新建
-- `identity_rules.mjs`：身份执行宪法 prompt 构建器（8 个规则函数）
+- `identity_rules.mjs`：身份执行宪法 prompt 构建器 + `scrubIdentityError()` 硬约束出站扫描
 - `speech_lock.mjs`：发言串行锁模块（CAS 实现 + 60s 超时）
 
 ### 修改
 - `companion.mjs`：`buildSystemPrompt` 末尾注入 `buildIdentityConstitution(c.name)`
-- `bot.mjs`：`handleMessage` 获取/释放 speech lock
-- `proactive.mjs`：`sendProactiveMessage` 获取/释放 speech lock
-- `event_memory.mjs`：新增 `isDreamSimilarToRecent()` 7 天相似度去重
-- `life_engine.mjs`：`generateDreamForCompanion` 接入 7 天相似度去重 + 自动换主题
+- `bot.mjs`：获取/释放 speech lock + `scrubIdentityError` 出站扫描
+- `proactive.mjs`：获取/释放 speech lock + `scrubIdentityError` 出站扫描
 
 ---
 

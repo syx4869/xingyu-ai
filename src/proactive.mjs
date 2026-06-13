@@ -48,8 +48,9 @@ import { getSleepRow, getOrRefreshTodaySchedule, exitSleep,
 } from './sleep.mjs';
 import { generateLifeProactiveMessage } from './life_engine.mjs';
 import { generateTimelineRecall } from './timeline.mjs';
-import { buildEventMemoryPromptHint, logTopic, recordEvent, markMentioned } from './event_memory.mjs';  // v2.1.1
 import { tryAcquireSpeechLock, releaseSpeechLock } from './speech_lock.mjs';  // v2.3.0
+import { scrubIdentityError } from './identity_rules.mjs';  // v2.3.0
+import { buildEventMemoryPromptHint, logTopic, recordEvent, markMentioned } from './event_memory.mjs';  // v2.1.1
 
 // ─── Proactive Engine 版本选择 ────────────────────────────────────────────────
 // PROACTIVE_ENGINE=v2 启用 evaluateProactive() 决策层（推荐）
@@ -888,6 +889,7 @@ ${recallLoop.expected_followup ? `你心里想：${recallLoop.expected_followup}
     log('warn', `[Proactive] 发言锁获取失败 companion=${companion.id} — 跳过本轮主动消息`);
     return;
   }
+
   try {
 
   if (effectiveKind === 'life_share' && opts.lifeMsg?.text) {
@@ -903,6 +905,12 @@ ${recallLoop.expected_followup ? `你心里想：${recallLoop.expected_followup}
   reply = safeOutboundReply(reply);
   // #281：文本 proactive 永远没有真实照片（场景照是 kind=photo 独立分支）——表情绝不冒充照片
   reply = scrubPhotoImpersonation(reply, companion.id);
+  // v2.3.0 身份错位硬约束：检测 AI 名字被用于称呼用户
+  const identityScrub = scrubIdentityError(reply, companion.name);
+  if (identityScrub.scrubbed) {
+    log('warn', `[Proactive] 身份错位扫描命中 companion=${companion.id} 原="${reply.slice(0, 40)}" → 修="${identityScrub.fixedReply.slice(0, 40)}"`);
+    reply = identityScrub.fixedReply;
+  }
 
   // ★ 撞车检测：字面（3-gram 0.6）+ 语义（bigram/LCS）双指标，命中重生一次
   const collision = findCollision(reply, recentAssistantTexts);

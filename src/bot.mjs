@@ -50,6 +50,7 @@ import { extractOpenLoops, detectAndResolveOpenLoops } from './open_loops.mjs';
 import { generateInnerMonologue, buildInnerOsHint } from './inner_os.mjs';
 import { maybeSleepBlock } from './sleep.mjs';
 import { tryAcquireSpeechLock, releaseSpeechLock } from './speech_lock.mjs';  // v2.3.0
+import { scrubIdentityError } from './identity_rules.mjs';  // v2.3.0
 
 const APP_URL = process.env.APP_URL || 'http://localhost:3000';
 const _PHOTO_REQUEST_ENABLED = !['0', 'false', 'no', 'off'].includes(String(process.env.PHOTO_REQUEST_ENABLED ?? 'true').toLowerCase());
@@ -905,6 +906,7 @@ async function processUserTurn({ companion, binding, ctx, botId, fromUser, conte
       return;
     }
 
+    try {
     // ★ 危机干预：检测到自伤/自杀(结合最近多轮上下文) → 退出角色、直接给求助资源，覆盖 LLM，绝不继续演
     // （v1.21: _crisisLevel 的检测已前置到 arc tick 之前——危机下 arc 冷淡表达被挂起）
     const genReplyOnce = () => _crisisLevel === 'high'
@@ -937,6 +939,12 @@ async function processUserTurn({ companion, binding, ctx, botId, fromUser, conte
     reply = scrubConflictRedline(reply, arcCtx.arcState, companion.id);
     // #281：表情包冒充照片护栏——文本回复链上本轮必无真实照片（photo 分支早已 return）
     reply = scrubPhotoImpersonation(reply, companion.id);
+    // v2.3.0 身份错位硬约束：检测 AI 名字被用于称呼用户
+    const identityScrub = scrubIdentityError(reply, companion.name);
+    if (identityScrub.scrubbed) {
+      log('warn', `[Bot] 身份错位扫描命中 companion=${companion.id} 原="${reply.slice(0, 40)}" → 修="${identityScrub.fixedReply.slice(0, 40)}"`);
+      reply = identityScrub.fixedReply;
+    }
 
     // ── Persona Guard ─────────────────────────────────────────────────────────
     try {
@@ -1042,6 +1050,10 @@ async function processUserTurn({ companion, binding, ctx, botId, fromUser, conte
     postProcess(companion, userText, reply).catch(err =>
       log('error', `[Bot] postProcess 异常: ${err.message}`)
     );
+
+  } finally {
+    releaseSpeechLock(companion.id);  // v2.3.0 内层 try 的 finally
+  }
 
   } catch (err) {
     log('error', `[Bot] 处理消息异常: ${err.message}\n${err.stack}`);
