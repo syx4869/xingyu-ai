@@ -49,6 +49,7 @@ import { getSleepRow, getOrRefreshTodaySchedule, exitSleep,
 import { generateLifeProactiveMessage } from './life_engine.mjs';
 import { generateTimelineRecall } from './timeline.mjs';
 import { buildEventMemoryPromptHint, logTopic, recordEvent, markMentioned } from './event_memory.mjs';  // v2.1.1
+import { tryAcquireSpeechLock, releaseSpeechLock } from './speech_lock.mjs';  // v2.3.0
 
 // ─── Proactive Engine 版本选择 ────────────────────────────────────────────────
 // PROACTIVE_ENGINE=v2 启用 evaluateProactive() 决策层（推荐）
@@ -799,7 +800,7 @@ async function sendProactiveMessage(companion, kind, account, opts = {}) {
 - 可以带一点你此刻的小情绪（开心 / 感慨 / 害羞）
 - 如果是"认识100天""一周年"这类，可以轻轻回顾你们一路的相处`
     : effectiveKind === 'goodnight'
-    ? '你要主动给他发今天最后一条晚安消息。自然、温柔，适合临睡前的语气，不要报时。结合你们最近聊过的事，体现你的人设和心情。说完晚安你就要去睡了。**绝对不要用你的名字结尾**（如"晚安，小溪"），这会让对方误会你在叫他，用"晚安啦""好梦""早点睡哦"等自然结尾。'
+    ? '你要主动给他发今天最后一条晚安消息。自然、温柔，适合临睡前的语气，不要报时。结合你们最近聊过的事，体现你的人设和心情。说完晚安你就要去睡了。'
     : effectiveKind === 'morning'
     ? `你要主动给他发今天第一条早安消息。自然、带刚醒的迷糊感，1-2 段短消息（用 || 分隔），不要报时也不要像在播报。${missedHint}`
     : effectiveKind === 'recall'
@@ -880,6 +881,15 @@ ${recallLoop.expected_followup ? `你心里想：${recallLoop.expected_followup}
   const proactiveBinding = getActiveWechatBinding(companion.wechat_user_id, companion.bot_id);
   // v2.0 Life Engine: 自主行为分享使用预生成文本，不调 LLM
   let reply;
+
+  // v2.3.0 Speech Lock: 发言串行锁，防止 LifeEngine 同 tick 输出多条消息
+  const gotSpeechLock = tryAcquireSpeechLock(companion.id);
+  if (!gotSpeechLock) {
+    log('warn', `[Proactive] 发言锁获取失败 companion=${companion.id} — 跳过本轮主动消息`);
+    return;
+  }
+  try {
+
   if (effectiveKind === 'life_share' && opts.lifeMsg?.text) {
     reply = opts.lifeMsg.text;
     log('info', `[Proactive] LifeEngine 分享 companion=${companion.id} kind=${opts.lifeMsg.kind}`);
@@ -1045,6 +1055,9 @@ ${recallLoop.expected_followup ? `你心里想：${recallLoop.expected_followup}
   }
 
   log('info', `[Proactive] 已发送 companion=${companion.id} to=${companion.wechat_user_id} kind=${effectiveKind} segments=${segments.length} stickers=${totalStickers}`);
+  } finally {
+    releaseSpeechLock(companion.id);  // v2.3.0
+  }
 }
 
 // v1.10.24: plan_tasks runSleepTick 进入 bed_at 前若 goodnight_sent_for_date 为空，

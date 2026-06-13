@@ -22,7 +22,7 @@ import { getOrRefreshTodaySchedule, isSleepingNow, getSleepRow } from './sleep.m
 import { updateEmotionDimension } from './emotion_state.mjs';
 import { generateReply } from './ai.mjs';
 import { generateTimelineRecall } from './timeline.mjs';
-import { recordEvent, checkCooldown, generateEventId, getRecentDreamEvent, isDreamGenerationAllowed, isDreamAlreadyShared, checkTopicDuplicate, markGenerated, tryAcquireExecLock, releaseExecLock, findExistingEvent, EVENT_STATES } from './event_memory.mjs';  // v2.1.1, v2.1.3, v2.2.0
+import { recordEvent, checkCooldown, generateEventId, getRecentDreamEvent, isDreamGenerationAllowed, isDreamAlreadyShared, checkTopicDuplicate, markGenerated, tryAcquireExecLock, releaseExecLock, findExistingEvent, EVENT_STATES, isDreamSimilarToRecent } from './event_memory.mjs';  // v2.1.1, v2.1.3, v2.2.0, v2.3.0
 
 // ─── 状态机定义 ────────────────────────────────────────────────────────────────
 
@@ -467,6 +467,29 @@ function generateDreamForCompanion(companionId, habits) {
   } catch {}
 
   const summary = `${theme}${context ? '（' + context.slice(0, 30) + '）' : ''}`;
+
+  // v2.3.0: 7 天梦境相似度去重（相似度 > 0.75 禁止生成）
+  if (isDreamSimilarToRecent(companionId, summary)) {
+    log('info', `[LifeEngine] 梦境相似度去重 companion=${companionId} theme="${theme}" — 换主题`);
+    // 换一个完全不同的主题，最多尝试 3 次
+    const usedThemes = new Set([theme]);
+    for (let retry = 0; retry < 3; retry++) {
+      const newTheme = DREAM_THEMES.filter(t => !usedThemes.has(t))[Math.floor(Math.random() * Math.max(1, DREAM_THEMES.length - usedThemes.size))];
+      if (!newTheme || usedThemes.has(newTheme)) break;
+      usedThemes.add(newTheme);
+      const altSummary = `${newTheme}${context ? '（' + context.slice(0, 30) + '）' : ''}`;
+      if (!isDreamSimilarToRecent(companionId, altSummary)) {
+        theme = newTheme;
+        log('info', `[LifeEngine] 梦境换主题成功 companion=${companionId} newTheme="${newTheme}"`);
+        break;
+      }
+    }
+    // 如果 3 次都失败，放弃本次梦境生成
+    if (usedThemes.size >= 4) {
+      log('warn', `[LifeEngine] 梦境换主题失败 companion=${companionId} — 放弃本次生成`);
+      return null;
+    }
+  }
 
   // v2.2.0 幂等检查：相同 hash 已存在 → 返回现有
   const existing = findExistingEvent(companionId, 'dream', summary);

@@ -49,6 +49,7 @@ import { recordUserReplied } from './proactive_engine.mjs';
 import { extractOpenLoops, detectAndResolveOpenLoops } from './open_loops.mjs';
 import { generateInnerMonologue, buildInnerOsHint } from './inner_os.mjs';
 import { maybeSleepBlock } from './sleep.mjs';
+import { tryAcquireSpeechLock, releaseSpeechLock } from './speech_lock.mjs';  // v2.3.0
 
 const APP_URL = process.env.APP_URL || 'http://localhost:3000';
 const _PHOTO_REQUEST_ENABLED = !['0', 'false', 'no', 'off'].includes(String(process.env.PHOTO_REQUEST_ENABLED ?? 'true').toLowerCase());
@@ -896,6 +897,14 @@ async function processUserTurn({ companion, binding, ctx, botId, fromUser, conte
     // v1.9.1: 把检测到的 safety level 传下去，high/medium 时 generateReply 内部会
     // 把 temperature 收紧到 min(base, 0.4|0.6)。不上调用户已设的低温值。
     let reply;
+
+    // v2.3.0 Speech Lock: 发言串行锁，防止同一 companion 同时输出多条消息
+    const gotSpeechLock = tryAcquireSpeechLock(companion.id);
+    if (!gotSpeechLock) {
+      log('warn', `[Bot] 发言锁获取失败 companion=${companion.id} — 跳过本轮回复`);
+      return;
+    }
+
     // ★ 危机干预：检测到自伤/自杀(结合最近多轮上下文) → 退出角色、直接给求助资源，覆盖 LLM，绝不继续演
     // （v1.21: _crisisLevel 的检测已前置到 arc tick 之前——危机下 arc 冷淡表达被挂起）
     const genReplyOnce = () => _crisisLevel === 'high'
@@ -1041,6 +1050,7 @@ async function processUserTurn({ companion, binding, ctx, botId, fromUser, conte
     } catch { /* ignore */ }
   } finally {
     inflightUsers.delete(msg.fromUser);
+    if (companion?.id) releaseSpeechLock(companion.id);  // v2.3.0
   }
 }
 

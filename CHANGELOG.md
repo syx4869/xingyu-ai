@@ -1,35 +1,44 @@
 # 星语 AI 变更日志
 
-## V2.2.2 (2026-06-13)
+## V2.3.0 (2026-06-13)
 
-### 修复 — 晚安消息中 AI 用自己的名字结尾（如"晚安，小溪"）
+### 新增 — 身份执行宪法（Identity Execution Constitution）
 
-**根因**：LLM 生成晚安消息时，会用 companion 的名字做签名式结尾（"晚安，小溪"），但用户读起来像是在叫自己的名字，产生"你怎么把我叫成小溪了"的困惑。
+**问题**：AI 存在身份错位（把用户叫成"小溪"）、context 丢失、多线程发言混乱、人格输出错乱。
 
-**修复**：
-- `proactive.mjs` goodnight userMessage：明确禁止"晚安，小溪"式签名结尾，引导用"晚安啦""好梦""早点睡哦"
-- `companion.mjs` systemPrompt：新增【名字使用】规则，全局禁止在消息末尾用"晚安，${name}"格式
+**八层约束架构**：
+
+| 层 | 模块 | 作用 |
+|----|------|------|
+| 1 | `identity_rules.mjs` | 身份锁：禁止 AI 把用户叫成自己名字 |
+| 2 | `identity_rules.mjs` | Context 强制绑定：缺失 user_id/companion_id → 停止生成 |
+| 3 | `identity_rules.mjs` | Sleep 隔离：睡眠时禁止访问用户名字、禁止生成主动消息 |
+| 4 | `speech_lock.mjs` | 发言串行锁：同一 companion 同时只能输出一条消息 |
+| 5 | `identity_rules.mjs` | 梦境去重：每日最多 1 个，相似度 >75% 禁止 |
+| 6 | `identity_rules.mjs` | 人格输出：禁止自言自语/错称呼/把用户写进自己的梦 |
+| 7 | `companion.mjs` | 标准化 Life Engine 执行流程 |
+| 8 | `identity_rules.mjs` | 故障安全：任何异常 → return null，不允许 fallback 生成 |
+
+**Speech Serialization Lock**：
+- 全局 `Map<companionId, {lockedAt}>` 实现 CAS 锁
+- 60s 超时自动释放防死锁
+- `bot.mjs`：`handleMessage` 发言前获取锁，`finally` 释放
+- `proactive.mjs`：`sendProactiveMessage` 发言前获取锁，`try/finally` 包裹
+
+**梦境 7 天相似度去重**：
+- `isDreamSimilarToRecent()`：新梦境主题与 7 天内所有梦境比较
+- 相似度 > 0.75 → 自动换主题（最多 3 次），仍失败 → 放弃生成
+
+### 新建
+- `identity_rules.mjs`：身份执行宪法 prompt 构建器（8 个规则函数）
+- `speech_lock.mjs`：发言串行锁模块（CAS 实现 + 60s 超时）
 
 ### 修改
-- `proactive.mjs`：goodnight prompt 增加禁止签名式结尾
-- `companion.mjs`：systemPrompt 增加名字使用规则
-
----
-
-## V2.2.1 (2026-06-13)
-
-### 修复 — "今天她想对你说"每天显示相同内容
-
-**根因**：`GET /api/companions/:id/daily-thought` 自愈机制只在 thought 为 null 时触发异步生成。如果数据库里存在旧记录（cron 未运行 / LLM 调用失败 / generated_at 日期异常），API 永远返回旧数据，不会触发重新生成。
-
-**修复**：
-- **API stale 检测**：`generated_at` 日期不是今天 → 视为 stale → 返回 null + 后台 `force=true` 重新生成
-- **前端 🔄 按钮**：卡片右侧新增刷新按钮，点击调用 `POST /api/companions/:id/daily-thought/regenerate` 强制重新生成
-- **用户体验**：刷新时显示"正在想…"，生成完成后自动刷新卡片内容
-
-### 修改
-- `api.mjs`：`GET /daily-thought` 增加 `isStale` 检测 + `force` 参数
-- `dashboard.html`：新增 🔄 按钮 + `regenerateThought()` 函数
+- `companion.mjs`：`buildSystemPrompt` 末尾注入 `buildIdentityConstitution(c.name)`
+- `bot.mjs`：`handleMessage` 获取/释放 speech lock
+- `proactive.mjs`：`sendProactiveMessage` 获取/释放 speech lock
+- `event_memory.mjs`：新增 `isDreamSimilarToRecent()` 7 天相似度去重
+- `life_engine.mjs`：`generateDreamForCompanion` 接入 7 天相似度去重 + 自动换主题
 
 ---
 

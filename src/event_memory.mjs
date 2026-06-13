@@ -287,9 +287,23 @@ export function isDreamGenerationAllowed(companionId) {
   return { allowed: true, reason: '' };
 }
 
-export function isDreamAlreadyShared(companionId) {
-  const dream = getRecentDreamEvent(companionId);
-  return dream && dream.mentioned_count > 0;
+/**
+ * 检查新梦境主题是否与 7 天内任何梦境相似度 > 0.75。
+ * 用于阻止生成相似主题的梦境。
+ */
+export function isDreamSimilarToRecent(companionId, newTheme) {
+  const events = getRecentEvents(companionId, 168); // 7 天
+  const recentDreams = events.filter(e => e.type === 'dream');
+  if (recentDreams.length === 0) return false;
+
+  for (const dream of recentDreams) {
+    const sim = topicSimilarity(newTheme, dream.summary || '');
+    if (sim >= 0.75) {
+      log('info', `[EventMemory] 梦境相似度命中 sim=${sim.toFixed(2)} new="${newTheme}" old="${dream.summary?.slice(0, 30)}"`);
+      return true;
+    }
+  }
+  return false;
 }
 
 // ─── 构建"已提及事件"prompt 提示 ────────────────────────────────────────────
