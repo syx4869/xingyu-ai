@@ -1,5 +1,22 @@
 # 星语 AI 变更日志
 
+## V2.2.1 (2026-06-13)
+
+### 修复 — "今天她想对你说"每天显示相同内容
+
+**根因**：`GET /api/companions/:id/daily-thought` 自愈机制只在 thought 为 null 时触发异步生成。如果数据库里存在旧记录（cron 未运行 / LLM 调用失败 / generated_at 日期异常），API 永远返回旧数据，不会触发重新生成。
+
+**修复**：
+- **API stale 检测**：`generated_at` 日期不是今天 → 视为 stale → 返回 null + 后台 `force=true` 重新生成
+- **前端 🔄 按钮**：卡片右侧新增刷新按钮，点击调用 `POST /api/companions/:id/daily-thought/regenerate` 强制重新生成
+- **用户体验**：刷新时显示"正在想…"，生成完成后自动刷新卡片内容
+
+### 修改
+- `api.mjs`：`GET /daily-thought` 增加 `isStale` 检测 + `force` 参数
+- `dashboard.html`：新增 🔄 按钮 + `regenerateThought()` 函数
+
+---
+
 ## V2.2.0 (2026-06-13)
 
 ### 新增 — Event State Machine + Idempotency（事件生命周期状态机 + 幂等执行）

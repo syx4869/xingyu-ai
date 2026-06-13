@@ -575,9 +575,14 @@
               <p id="daily-thought-content" class="text-[14px] leading-relaxed text-ink/90 font-medium">—</p>
               <p id="daily-thought-empty" class="text-[12px] text-mute" style="display:none;">她还在想该跟你说什么呢…多聊聊她就知道啦。</p>
             </div>
-            <button id="btn-thought-play" type="button" class="flex-shrink-0 w-9 h-9 rounded-full bg-white border border-sakura-soft text-sakura-deep hover:bg-sakura-soft transition-all" title="听她念给你">
-              🔊
-            </button>
+            <div class="flex items-center gap-1">
+              <button id="btn-thought-refresh" type="button" class="flex-shrink-0 w-9 h-9 rounded-full bg-white border border-sakura-soft text-sakura-deep hover:bg-sakura-soft transition-all" title="换一句" style="display:none;">
+                🔄
+              </button>
+              <button id="btn-thought-play" type="button" class="flex-shrink-0 w-9 h-9 rounded-full bg-white border border-sakura-soft text-sakura-deep hover:bg-sakura-soft transition-all" title="听她念给你">
+                🔊
+              </button>
+            </div>
           </div>
         </div>
 
@@ -2323,6 +2328,7 @@
         const contentEl = document.getElementById('daily-thought-content');
         const emptyEl = document.getElementById('daily-thought-empty');
         const btnPlay = document.getElementById('btn-thought-play');
+        const btnRefresh = document.getElementById('btn-thought-refresh');
         card.style.display = '';
         if (thought && thought.content) {
           contentEl.style.display = '';
@@ -2331,10 +2337,15 @@
           // v1.4.2: TTS 没配就不显示 🔊
           btnPlay.style.display = CAPS.tts ? '' : 'none';
           if (CAPS.tts) btnPlay.onclick = () => playThoughtAsVoice(thought.content, btnPlay);
+          // v2.2.1: 刷新按钮
+          btnRefresh.style.display = '';
+          btnRefresh.onclick = () => regenerateThought(companionId, btnRefresh);
         } else {
           contentEl.style.display = 'none';
           emptyEl.style.display = '';
           btnPlay.style.display = 'none';
+          btnRefresh.style.display = '';
+          btnRefresh.onclick = () => regenerateThought(companionId, btnRefresh);
         }
       } catch (e) {
         // 静默：dashboard 加载失败不打扰用户
@@ -2358,6 +2369,34 @@
         await _thoughtAudio.play();
       } catch (e) {
         if (btnEl) btnEl.style.opacity = '';
+      }
+    }
+
+    // v2.2.1: 手动刷新"今天她想对你说"
+    async function regenerateThought(companionId, btnEl) {
+      if (!companionId) return;
+      try {
+        if (btnEl) { btnEl.style.opacity = '0.4'; btnEl.style.pointerEvents = 'none'; }
+        const contentEl = document.getElementById('daily-thought-content');
+        const emptyEl = document.getElementById('daily-thought-empty');
+        if (contentEl) contentEl.textContent = '正在想…';
+        if (emptyEl) emptyEl.style.display = 'none';
+
+        const r = await fetch('/api/companions/' + companionId + '/daily-thought/regenerate', {
+          method: 'POST',
+          headers: { Authorization: 'Bearer ' + token },
+        });
+        const d = await r.json();
+        if (d?.ok) {
+          await loadDailyThought(companionId);
+        } else {
+          showToast('刷新失败，稍后再试');
+          if (contentEl) contentEl.textContent = '—';
+        }
+      } catch (e) {
+        showToast('刷新失败');
+      } finally {
+        if (btnEl) { btnEl.style.opacity = ''; btnEl.style.pointerEvents = ''; }
       }
     }
 

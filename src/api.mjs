@@ -3530,6 +3530,7 @@ router.get('/me/capabilities', requireAuth, (_req, res) => {
 // GET /api/companions/:id/daily-thought  (v1.4.1)
 // 返回「今天她想对你说的话」+ 实时算出的想念档（meter）
 // 没有今日记录时，自愈触发一次生成（异步，不阻塞此次返回）。
+// v2.2.1: 增加 stale 检测 — 记录存在但 generated_at 是旧日期 → 强制重新生成
 router.get('/companions/:id/daily-thought', requireAuth, (req, res) => {
   const id = intId(req.params.id); if (!id) return err(res, 'id 无效');
   const c  = requireOwnedCompanion(req, res, id); if (!c) return;
@@ -3543,16 +3544,25 @@ router.get('/companions/:id/daily-thought', requireAuth, (req, res) => {
   const missingLevel = getMissingLevel(emotion, c.last_user_reply_at);
   const recent = getRecentDailyThoughts(id, 7);
 
+  // v2.2.1: stale 检测 — generated_at 日期不是今天 → 强制重新生成
+  const isStale = thought && thought.generated_at
+    ? (new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' })
+        .format(new Date(thought.generated_at + 'Z')) !== today)
+    : false;
+
   // 自愈：今日还没有 thought 时（首次安装 / cron 没跑到 / 新建 companion），
   // 后台异步生成一次。当前请求仍按现状返回（thought 可能为 null）。
-  if (!thought) {
-    generateDailyThoughtForCompanion(id, { dateKey: today })
+  if (!thought || isStale) {
+    if (isStale) {
+      log('info', `[API] daily-thought stale companion=${id} generated_at=${thought.generated_at} → 强制重新生成`);
+    }
+    generateDailyThoughtForCompanion(id, { dateKey: today, force: !!isStale })
       .catch(e => log('warn', `[API] daily-thought 自愈生成失败 companion=${id}: ${e.message}`));
   }
 
   return ok(res, {
     today,
-    thought: thought || null,
+    thought: isStale ? null : (thought || null),  // stale → 返回 null 让前端显示空状态
     missing: {
       level: missingLevel,
       label: getMissingLabel(missingLevel),
